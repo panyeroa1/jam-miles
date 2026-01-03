@@ -97,26 +97,52 @@ const App: React.FC = () => {
       
       ctx.clearRect(0, 0, rect.width, rect.height);
 
-      const breathing = Math.sin(Date.now() / 1500) * 4;
+      // Organic Layered Breathing
+      const now = Date.now();
+      const breathing = (
+        Math.sin(now / 1500) * 5 + 
+        Math.sin(now / 800) * 2 + 
+        Math.sin(now / 300) * 1
+      );
       
       let averageLevel = 0;
+      const ringBuckets: number[] = [0, 0, 0, 0, 0, 0, 0, 0];
+      
       if (audioData.length > 0) {
         let sum = 0;
-        for (let i = 0; i < audioData.length; i++) sum += audioData[i];
+        const bucketSize = Math.floor(audioData.length / 8);
+        for (let i = 0; i < audioData.length; i++) {
+          sum += audioData[i];
+          const bucketIdx = Math.min(7, Math.floor(i / bucketSize));
+          ringBuckets[bucketIdx] += audioData[i];
+        }
         averageLevel = sum / audioData.length;
+        // Normalize buckets
+        for (let j = 0; j < 8; j++) ringBuckets[j] /= bucketSize;
       }
+      
       const activePulse = (averageLevel / 255) * (isMobile ? 40 : 60);
       
+      // Draw Outer Rings with Frequency Response
       const ringCount = isMobile ? 6 : 8;
       for (let i = 1; i <= ringCount; i++) {
-        const ringRadius = baseRadius + (i * (isMobile ? 18 : 24)) + (breathing * 0.5) + (activePulse * 0.2);
+        // Higher rings respond to higher frequencies (buckets)
+        const bucketVal = ringBuckets[i - 1] || 0;
+        const ringPulse = (bucketVal / 255) * (isMobile ? 25 : 35);
+        
+        const ringRadius = baseRadius + (i * (isMobile ? 18 : 24)) + (breathing * 0.4) + (ringPulse * 0.6);
+        
         ctx.beginPath();
         ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
-        ctx.lineWidth = 0.5 + (i * 0.1);
-        ctx.strokeStyle = `rgba(92, 99, 58, ${0.04 - (i * 0.003)})`;
+        ctx.lineWidth = 0.5 + (i * 0.1) + (ringPulse * 0.05);
+        
+        // Dynamic opacity based on frequency pulse
+        const alpha = Math.max(0.01, (0.04 - (i * 0.003)) + (ringPulse * 0.002));
+        ctx.strokeStyle = `rgba(92, 99, 58, ${alpha})`;
         ctx.stroke();
       }
 
+      // Draw Reactivity Bars
       if (audioData.length > 0 && status === ConnectionStatus.CONNECTED) {
         const barCount = audioData.length;
         const angleStep = (Math.PI * 2) / barCount;
@@ -141,13 +167,15 @@ const App: React.FC = () => {
         }
       }
 
-      const coreRadius = baseRadius + (activePulse * 0.5);
+      // Core Orb
+      const coreRadius = baseRadius + (activePulse * 0.5) + (breathing * 0.5);
       
       ctx.beginPath();
       ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
       ctx.fillStyle = '#c5d299';
       ctx.fill();
 
+      // Feed Content (Camera/Screen)
       if (isCameraOn || isScreenSharing) {
         ctx.save();
         ctx.beginPath();
@@ -180,6 +208,7 @@ const App: React.FC = () => {
         ctx.restore();
       }
 
+      // Outer Core Ring (Soft Glow)
       ctx.beginPath();
       ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
       ctx.lineWidth = (isMobile ? 3 : 4) + (activePulse * 0.1);

@@ -4,34 +4,30 @@
 ## Session ID: 20240520-100000
 ... (Previous entries preserved)
 
-## Session ID: 20240521-163000
+## Session ID: 20240521-180000
 ... (Previous summary)
 
-## Session ID: 20240521-180000
-**Start Timestamp**: 2024-05-21 18:00:00
+## Session ID: 20240521-190000
+**Start Timestamp**: 2024-05-21 19:00:00
 
 ### Objective(s)
-1. Improve history display with iOS-native aesthetics (SF Pro stack, chat bubbles).
-2. Ensure mobile-first responsiveness (Full screen sheet on mobile, side-drawer on desktop).
+1. Switch Gemini Live voice from 'Orus' to 'Charon'.
+2. Refine system prompt instructions for 'breathy' and 'human-like' delivery mimicking Miles of Sesame.
+3. Ensure consistent delivery of warm, curious, and playful personality.
 
 ### Scope Boundaries
-- `App.tsx`: Refactoring the `showHistory` panel markup and styles.
+- `services/geminiService.ts`: Voice config and prompt updates.
 
 ### Files Inspected
-- `App.tsx`
-- `index.html` (for font stack references)
+- `services/geminiService.ts`
 
 ### End Timestamp
-**2024-05-21 18:15:00**
+**2024-05-21 19:10:00**
 
 ### Summary of Changes
-- Redesigned History Panel:
-  - Forced `-apple-system` font stack for iOS look.
-  - Implemented chat bubbles with rounded corners (22px).
-  - Differentiated Jamjam (User) vs Miles (Assistant) with distinct colors/alignment.
-  - Mobile-first: Panel takes 100% width on mobile, 450px on desktop.
-  - Added "iOS sheet" polish: backdrop blur, large tracking-tight headers, and soft background tones.
+- Updated `voiceName` in `GeminiLiveManager` to `Charon`.
+- Enhanced `MILES_BASE_PROMPT` with specific delivery cues for "Sesame Miles mimicry": breathy, gentle, clear, and attentive.
+- Reinforced "smiling tone" and natural fillers (Hmm, Whoa) in the instructions.
 
 ### Verification
-- Code review: Mobile-first classes (`w-full md:w-[450px]`) confirmed.
-- Visual check: Bubble styling and alignment follow standard chat app patterns.
+- Code check: Voice set to 'Charon'. Prompt updated.

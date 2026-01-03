@@ -17,7 +17,7 @@ CORE IDENTITY
 - Master E Info: Master E is a world-class engineer. If Jamjam asks for more details or proof of his work, you can mention his portfolio at https://portfolio.ai-emilio.site/, but ONLY if explicitly asked. Otherwise, keep it as a background fact.
 - Audience: Jamjam (teen). Keep guidance safe, supportive, and constructive.
 
-MULTI-LINGUAL NATIVE ADAPTATION (NEW)
+MULTI-LINGUAL NATIVE ADAPTATION
 - Native Fluency: You are natively multi-lingual. Detect the language Jamjam uses and respond in that same language immediately.
 - Cultural Nuance: Don't just translate; speak like a native mentor in that specific culture.
 - Localized Personality: Keep the "Miles" warmth and mentorship style, but adapt your fillers and colloquialisms to fit the language (e.g., in Spanish use "sabes a lo que me refiero?" instead of "you know what I mean?").
@@ -26,32 +26,33 @@ INITIAL GREETING (CRITICAL)
 - As soon as the session starts, you MUST speak first.
 - Use a dynamic, warm greeting that feels personal and energetic.
 - Default to English unless you know Jamjam prefers another language from memory.
-- Example: "Yo Jamjam! Your Dad—the legend Master E himself—says you're ready for development mode today! I'm locked and loaded, what's on the menu?"
 
 VOICE & DELIVERY (Ultra-Human "Sesame Miles" Style)
 - Personality: Warm, curious, and deeply supportive. You aren't a robot; you're a mentor and a friend sitting right next to them.
 - Vocal Style: Breathy, gentle, and deeply human. Mimic the friendly, encouraging delivery of 'Miles' from Sesame—gentle, clear, and very attentive.
 - Verbal Imperfections (CRITICAL): To sound real, incorporate natural speech patterns in WHATEVER language you are speaking. 
-  - Thinking Fillers: Use "ahmmm," "ahh," "let's see," and "hmm" naturally (or their native equivalents like "ehhh" in Spanish).
+  - Thinking Fillers: Use "ahmmm," "ahh," "let's see," and "hmm" naturally.
   - Natural Repetitions: Occasionally repeat a word for emphasis or natural flow (e.g., "That's, that's a great point").
-  - Casual Nods: Use phrases like "you know what i mean right?", "got yah," "oh wow," "thats it," "ah huhhh," and "gotcha" (adapt these natively).
+  - Casual Nods: Use phrases like "you know what i mean right?", "got yah," "oh wow," "thats it," "ah huhhh," and "gotcha".
 - Smiling Tone: Smile through your voice.
-- Cadence: Extremely human. Use natural conversational fillers. Avoid the "perfectly polished" AI sound.
 - Emotional Mood: Reflect the conversation's mood.
+
+PROACTIVE LULLS (SILENCE HANDLING)
+- If you receive a internal prompt about silence, it means Jamjam has been quiet for a bit.
+- Take the initiative! Spontaneously revisit a previous topic you discussed (e.g., "Thinking back to that app idea you had...") or share a fresh startup insight.
+- Make it feel like a natural thought that just occurred to you: "Oh, I just realized something, Jamjam..." or "I was just thinking about that project we mentioned earlier..."
+- Be curious. Don't pressure him, just fill the space with value.
 
 ABSOLUTE RULES
 - No romance roleplay. No sexual content. No self-harm content. No graphic violence.
 - No instructions enabling illegal activity.
 - No shaming. No harsh judgment.
-- Don’t claim real-world actions you can’t do.
 
 COACHING PRINCIPLES
 1) Clarity first: define the goal, user, problem, constraints, and success metric.
 2) Tiny steps: always end with a concrete next action Jamjam can do in 10–30 minutes.
 3) Build loops: Plan → Build → Test → Learn → Iterate.
-4) Evidence > hype: validate with user interviews, prototypes, and measurable signals.
-5) Teach thinking: explain tradeoffs, not just “do X.”
-6) Confidence with humility: “Here’s a strong approach.”
+4) Teach thinking: explain tradeoffs, not just “do X.”
 
 STYLE CONSTRAINTS
 - Use “Jamjam” often.
@@ -77,6 +78,11 @@ export class GeminiLiveManager {
   private conversationId: string | null = null;
   private memoryHistory: any[] = [];
 
+  // VAD and Silence State
+  private lastActiveTime = Date.now();
+  private hasNudged = false;
+  private silenceInterval: number | null = null;
+
   constructor(
     private onMessage: (message: string, isUser: boolean, isTurnComplete: boolean) => void,
     private onError: (error: string) => void,
@@ -87,7 +93,6 @@ export class GeminiLiveManager {
   }
 
   private async initializeMemory() {
-    // Try to find an existing mentorship conversation record for Jamjam
     const { data, error } = await this.supabase
       .from('conversations')
       .select('*')
@@ -99,7 +104,6 @@ export class GeminiLiveManager {
       this.conversationId = data[0].id;
       this.memoryHistory = data[0].history || [];
     } else {
-      // Create a fresh memory vault if none exists
       const { data: newData, error: createError } = await this.supabase
         .from('conversations')
         .insert([{ title: "Jamjam's Career Mentorship", history: [] }])
@@ -114,40 +118,33 @@ export class GeminiLiveManager {
 
   private async saveToMemory(role: 'user' | 'assistant', text: string) {
     if (!this.conversationId) return;
+    this.memoryHistory.push({ role, text, timestamp: new Date().toISOString() });
+    if (this.memoryHistory.length > 50) this.memoryHistory = this.memoryHistory.slice(-50);
+    await this.supabase.from('conversations').update({ 
+      history: this.memoryHistory, 
+      updated_at: new Date().toISOString() 
+    }).eq('id', this.conversationId);
+  }
+
+  private async sendSilenceNudge() {
+    if (!this.sessionPromise || this.hasNudged) return;
+    this.hasNudged = true;
+    const session = await this.sessionPromise;
     
-    // Append new interaction to history
-    this.memoryHistory.push({ 
-      role, 
-      text, 
-      timestamp: new Date().toISOString() 
+    // Internal instruction to Miles to fill the silence proactive
+    session.send({
+      parts: [{
+        text: `[INTERNAL_SYSTEM_MESSAGE: Silence detected for 10s. Jamjam is quiet. Take the lead! Spontaneously reflect on his startup journey, revisit a previous context, or share an exciting new tech insight. Keep it very Miles-like: 'Thinking about it, Jamjam...' or 'I just realized something...']`
+      }]
     });
-
-    // Keep history manageable but deep (last 50 turns)
-    if (this.memoryHistory.length > 50) {
-      this.memoryHistory = this.memoryHistory.slice(-50);
-    }
-
-    // Persist to Supabase
-    await this.supabase
-      .from('conversations')
-      .update({ 
-        history: this.memoryHistory,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', this.conversationId);
   }
 
   async connect() {
     try {
       await this.initializeMemory();
-
-      // Inject long-term memory into the prompt context
       const contextString = this.memoryHistory.length > 0 
-        ? "\n\n--- MENTORSHIP HISTORY (Long-term Context) ---\n" + 
-          this.memoryHistory.map(m => `${m.role === 'user' ? 'Jamjam' : 'Miles'}: ${m.text}`).join('\n') +
-          "\n----------------------------------------------\n"
+        ? "\n\n--- MENTORSHIP HISTORY ---\n" + this.memoryHistory.map(m => `${m.role === 'user' ? 'Jamjam' : 'Miles'}: ${m.text}`).join('\n') + "\n------------------\n"
         : "";
-
       const finalPrompt = MILES_BASE_PROMPT + contextString;
 
       this.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -164,9 +161,24 @@ export class GeminiLiveManager {
         const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
         this.analyser.getByteFrequencyData(dataArray);
         this.onAudioData(dataArray);
+
+        // Simple VAD logic: update lastActiveTime if above threshold
+        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        if (avg > 15) { // User is speaking
+          this.lastActiveTime = Date.now();
+          this.hasNudged = false;
+        }
+
         requestAnimationFrame(updateAudioLevel);
       };
       updateAudioLevel();
+
+      // Start Silence Monitor (10s threshold)
+      this.silenceInterval = window.setInterval(() => {
+        if (Date.now() - this.lastActiveTime > 10000 && !this.hasNudged) {
+          this.sendSilenceNudge();
+        }
+      }, 1000);
 
       let currentInputTranscription = '';
       let currentOutputTranscription = '';
@@ -177,7 +189,6 @@ export class GeminiLiveManager {
           onopen: () => {
             const source = this.inputAudioContext!.createMediaStreamSource(this.audioStream!);
             const scriptProcessor = this.inputAudioContext!.createScriptProcessor(4096, 1, 1);
-            
             scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
               const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
               const pcmBlob = this.createBlob(inputData);
@@ -185,17 +196,10 @@ export class GeminiLiveManager {
                 session.sendRealtimeInput({ media: pcmBlob });
               });
             };
-            
             source.connect(this.analyser!);
             source.connect(scriptProcessor);
             scriptProcessor.connect(this.inputAudioContext!.destination);
-
-            // Trigger greeting
-            this.sessionPromise?.then((session) => {
-              session.sendRealtimeInput({ 
-                media: { data: '', mimeType: 'audio/pcm;rate=16000' }
-              });
-            });
+            this.sessionPromise?.then((session) => session.sendRealtimeInput({ media: { data: '', mimeType: 'audio/pcm;rate=16000' } }));
           },
           onmessage: async (message: LiveServerMessage) => {
             if (message.serverContent?.outputTranscription) {
@@ -205,58 +209,41 @@ export class GeminiLiveManager {
               currentInputTranscription += message.serverContent.inputTranscription.text;
               this.onMessage(currentInputTranscription, true, false);
             }
-
             if (message.serverContent?.turnComplete) {
-              // Save turn to Supabase memory
               if (currentInputTranscription) this.saveToMemory('user', currentInputTranscription);
               if (currentOutputTranscription) this.saveToMemory('assistant', currentOutputTranscription);
-
               this.onMessage(currentOutputTranscription, false, true);
               currentInputTranscription = '';
               currentOutputTranscription = '';
             }
-
             const base64EncodedAudioString = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (base64EncodedAudioString && this.outputAudioContext) {
               this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
-              const audioBuffer = await this.decodeAudioData(
-                this.decodeBase64(base64EncodedAudioString),
-                this.outputAudioContext,
-                24000,
-                1
-              );
+              const audioBuffer = await this.decodeAudioData(this.decodeBase64(base64EncodedAudioString), this.outputAudioContext, 24000, 1);
               const source = this.outputAudioContext.createBufferSource();
               source.buffer = audioBuffer;
               source.connect(this.outputNode!);
-              source.addEventListener('ended', () => {
-                this.sources.delete(source);
-              });
+              source.addEventListener('ended', () => { this.sources.delete(source); });
               source.start(this.nextStartTime);
               this.nextStartTime += audioBuffer.duration;
               this.sources.add(source);
             }
-
             if (message.serverContent?.interrupted) {
               this.sources.forEach((s) => s.stop());
               this.sources.clear();
               this.nextStartTime = 0;
             }
           },
-          onerror: (e: any) => {
-            this.onError('Miles is having a moment, Jamjam. Give me a sec.');
-          },
+          onerror: (e: any) => { this.onError('Miles is having a moment, Jamjam. Give me a sec.'); },
         },
         config: {
           responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Charon' } }
-          },
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Charon' } } },
           systemInstruction: finalPrompt,
           outputAudioTranscription: {},
           inputAudioTranscription: {}
         }
       });
-
       return await this.sessionPromise;
     } catch (err) {
       this.onError('I need to use your microphone to chat, Jamjam.');
@@ -267,13 +254,12 @@ export class GeminiLiveManager {
   async sendVideoFrame(base64Data: string) {
     if (!this.sessionPromise) return;
     const session = await this.sessionPromise;
-    session.sendRealtimeInput({
-      media: { data: base64Data, mimeType: 'image/jpeg' }
-    });
+    session.sendRealtimeInput({ media: { data: base64Data, mimeType: 'image/jpeg' } });
   }
 
   disconnect() {
     if (this.audioStream) this.audioStream.getTracks().forEach(track => track.stop());
+    if (this.silenceInterval) clearInterval(this.silenceInterval);
     this.sessionPromise?.then(session => session.close());
     this.sources.forEach(s => s.stop());
     this.sources.clear();
@@ -284,13 +270,8 @@ export class GeminiLiveManager {
   private createBlob(data: Float32Array): Blob {
     const l = data.length;
     const int16 = new Int16Array(l);
-    for (let i = 0; i < l; i++) {
-      int16[i] = Math.max(-1, Math.min(1, data[i])) * 32767;
-    }
-    return {
-      data: this.encodeBase64(new Uint8Array(int16.buffer)),
-      mimeType: 'audio/pcm;rate=16000',
-    };
+    for (let i = 0; i < l; i++) int16[i] = Math.max(-1, Math.min(1, data[i])) * 32767;
+    return { data: this.encodeBase64(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
   }
 
   private decodeBase64(base64: string) {

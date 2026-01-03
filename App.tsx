@@ -28,6 +28,46 @@ const App: React.FC = () => {
   const historyEndRef = useRef<HTMLDivElement>(null);
   const timerIntervalRef = useRef<number | null>(null);
   const frameIntervalRef = useRef<number | null>(null);
+  const feedbackAudioCtxRef = useRef<AudioContext | null>(null);
+
+  // Sound Synthesis Logic
+  const playFeedbackSound = (type: 'start' | 'stop') => {
+    if (!feedbackAudioCtxRef.current) {
+      feedbackAudioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const ctx = feedbackAudioCtxRef.current;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+
+    if (type === 'start') {
+      // Rising "bloop"
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.1);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.1, now + 0.05);
+      gain.gain.linearRampToValueAtTime(0, now + 0.15);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } else {
+      // Falling "thud"
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(220, now + 0.1);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.1, now + 0.05);
+      gain.gain.linearRampToValueAtTime(0, now + 0.2);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    }
+  };
 
   // Timer Logic
   useEffect(() => {
@@ -148,7 +188,6 @@ const App: React.FC = () => {
       const centerY = rect.height / 2;
       const isMobile = rect.width < 640;
       
-      // Scale down orb if video is on
       const isVideoActive = isCameraOn || isScreenSharing;
       const baseRadius = isVideoActive ? (isMobile ? 30 : 40) : (isMobile ? 65 : 85); 
       
@@ -162,7 +201,6 @@ const App: React.FC = () => {
       const activePulse = (averageLevel / 255) * (isVideoActive ? 15 : (isMobile ? 40 : 60));
       const ringCount = isVideoActive ? 3 : (isMobile ? 6 : 8);
 
-      // Draw rings
       for (let i = 1; i <= ringCount; i++) {
         const ringRadius = baseRadius + (i * (isVideoActive ? 8 : (isMobile ? 18 : 24))) + (breathing * 0.4);
         ctx.beginPath();
@@ -172,7 +210,6 @@ const App: React.FC = () => {
         ctx.stroke();
       }
 
-      // Draw core
       const coreRadius = baseRadius + (activePulse * 0.5) + (breathing * 0.5);
       ctx.beginPath();
       ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
@@ -208,9 +245,11 @@ const App: React.FC = () => {
 
   const toggleConnection = async () => {
     if (status === ConnectionStatus.CONNECTED || status === ConnectionStatus.CONNECTING) {
+      playFeedbackSound('stop');
       managerRef.current?.disconnect();
       setStatus(ConnectionStatus.IDLE);
     } else {
+      playFeedbackSound('start');
       setStatus(ConnectionStatus.CONNECTING);
       try {
         const manager = new GeminiLiveManager(handleMessage, (err) => setError(err), (data) => setAudioData(data), handleProfileUpdate);
@@ -255,7 +294,6 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 relative flex flex-col items-center justify-center overflow-hidden">
-        {/* Full View Video Feed */}
         <div className={`absolute inset-0 transition-opacity duration-500 z-10 ${(isCameraOn || isScreenSharing) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <video 
             ref={videoRef} 
@@ -264,24 +302,17 @@ const App: React.FC = () => {
             muted 
             className="w-full h-full object-cover"
           />
-          {/* Subtle overlay for better visibility of the orb and text */}
           <div className="absolute inset-0 bg-black/10 pointer-events-none" />
         </div>
-
-        {/* Visualizer Orb - Overlays video when active */}
         <canvas ref={visualizerCanvasRef} className="relative z-20 w-full h-full max-h-[75vw] max-w-[75vw] md:max-h-[800px] md:max-w-[800px] pointer-events-none" />
       </main>
 
       <footer className="relative z-30 pb-8 md:pb-12 px-6 flex flex-col items-center gap-6 w-full">
-        {/* Status Text with Dynamic Styling when Video is Active */}
         <div className={`text-sm md:text-base font-medium h-12 px-8 text-center w-full max-w-[600px] line-clamp-2 italic leading-snug transition-colors duration-300 ${(isCameraOn || isScreenSharing) ? 'text-white drop-shadow-md' : 'text-[#5c633a]/70'}`}>
           {status === ConnectionStatus.CONNECTED ? (currentAssistantText || currentUserText || "Miles is listening...") : "Ready to launch your career, Jamjam?"}
         </div>
 
-        {/* Action Bar - Optimized to exactly 5 icons */}
         <div className="bg-[#f5f4e8]/90 backdrop-blur-xl px-4 py-3 rounded-full flex items-center gap-3 sm:gap-6 shadow-2xl border border-[#5c633a]/10">
-          
-          {/* 1. Camera */}
           <button 
             onClick={isCameraOn ? stopCamera : startCamera}
             className={`p-3 rounded-full transition-all active:scale-90 ${isCameraOn ? 'bg-[#5c633a] text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`}
@@ -290,7 +321,6 @@ const App: React.FC = () => {
             {isCameraOn ? <VideoOff size={24} /> : <Video size={24} />}
           </button>
 
-          {/* 2. Mic */}
           <button 
             onClick={toggleMic}
             className={`p-3 rounded-full transition-all active:scale-90 ${isMicMuted ? 'bg-[#ff4d4d] text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`}
@@ -299,7 +329,6 @@ const App: React.FC = () => {
             {isMicMuted ? <MicOff size={24} /> : <Mic size={24} />}
           </button>
 
-          {/* 3. Main Session Toggle (Center) */}
           <button 
             onClick={toggleConnection} 
             className={`p-5 rounded-full shadow-lg transition-all active:scale-95 flex items-center justify-center ${status === ConnectionStatus.CONNECTED ? 'bg-[#ff4d4d] text-white' : 'bg-[#5c633a] text-white'}`}
@@ -307,7 +336,6 @@ const App: React.FC = () => {
             {status === ConnectionStatus.CONNECTED ? <Square size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
           </button>
 
-          {/* 4. Screen Share */}
           <button 
             onClick={isScreenSharing ? stopScreenShare : startScreenShare}
             className={`p-3 rounded-full transition-all active:scale-90 ${isScreenSharing ? 'bg-[#5c633a] text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`}
@@ -316,7 +344,6 @@ const App: React.FC = () => {
             {isScreenSharing ? <MonitorOff size={24} /> : <Monitor size={24} />}
           </button>
 
-          {/* 5. Speaker */}
           <button 
             onClick={toggleSpeaker}
             className={`p-3 rounded-full transition-all active:scale-90 ${isSpeakerMuted ? 'bg-[#ff4d4d] text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`}
@@ -324,7 +351,6 @@ const App: React.FC = () => {
           >
             {isSpeakerMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
           </button>
-
         </div>
       </footer>
 

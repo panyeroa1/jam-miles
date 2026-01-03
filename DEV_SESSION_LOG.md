@@ -1,32 +1,31 @@
 
 # DEV SESSION LOG
 
-## Session ID: 20250523-184500
-**Start Timestamp**: 2025-05-23 18:45:00
+## Session ID: 20250523-193000
+**Start Timestamp**: 2025-05-23 19:30:00
 
 ### Objective(s)
-1. Convert the "Info" icon into a "Configuration" hub.
-2. Provide a UI for managing complex audio routing (System Audio mix and Broadcast routing).
-3. Add instructions for phone call integration.
+1. Implement audio output device selection in the configuration panel.
+2. Allow Miles's voice to be routed to specific hardware sinks.
 
 ### Repo Scan
-- `App.tsx`: Replaced `Info` icon with `Settings` icon and added `showSettings` state + modal.
+- `geminiService.ts`: Added `setOutputDevice` using `AudioContext.setSinkId`.
+- `App.tsx`: Added device enumeration logic and a dropdown UI in the Settings panel.
 
 ### Plan
-1. Implement `Settings` modal sliding from the left.
-2. Add toggle for System Audio (aliased to Screen Share).
-3. Add toggle for Phone Call Mode (Master Broadcast).
-4. Add clear instructional text for users trying to integrate Miles with external calling apps.
+1. Update `GeminiLiveManager` to support setting the output sink ID.
+2. Add device enumeration logic in `App.tsx` triggered when settings are opened.
+3. Add a styled dropdown in the Configuration panel for choosing the output device.
 
 ### End Timestamp
-**2025-05-23 19:00:00**
+**2025-05-23 19:45:00**
 
 ### Summary of Changes
-- The app now has a full configuration panel.
-- Users can toggles "System Audio Mix" and "Master Broadcast" with helpful descriptions.
-- Responsive design: Settings panel slides in cleanly on both mobile and desktop.
+- Users can now select specific audio output hardware for Miles's voice.
+- Dropdown list populated with available `audiooutput` devices.
+- Seamlessly updates the active `AudioContext` sink when changed.
 
 ### Verification
-- Settings icon triggers the new panel.
-- Toggles correctly reflect state and provide visual feedback.
-- Broadcast routing instructions are clearly legible.
+- Settings panel shows the "Miles's Voice Output" section.
+- Dropdown populates with real device names (e.g., Headphones, Speakers).
+- Switching devices correctly re-routes Miles's voice.

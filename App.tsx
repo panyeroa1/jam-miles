@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GeminiLiveManager } from './services/geminiService.ts';
 import { TranscriptionEntry, ConnectionStatus } from './types.ts';
 import { 
-  Mic, MicOff, Info, Square, MessageSquare, X, Camera, CameraOff, ScreenShare, MonitorOff, Play, User, Sparkles, Video, VideoOff, Monitor, Zap, Volume2, VolumeX, Radio, Phone, PhoneOff, Settings, Headphones, Music, Share2
+  Mic, MicOff, Info, Square, MessageSquare, X, Camera, CameraOff, ScreenShare, MonitorOff, Play, User, Sparkles, Video, VideoOff, Monitor, Zap, Volume2, VolumeX, Radio, Phone, PhoneOff, Settings, Headphones, Music, Share2, ChevronDown
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -23,6 +23,8 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSystemAudioActive, setIsSystemAudioActive] = useState(false);
   const [isPhoneMode, setIsPhoneMode] = useState(false);
+  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedOutputDeviceId, setSelectedOutputDeviceId] = useState<string>('default');
 
   const managerRef = useRef<GeminiLiveManager | null>(null);
   const visualizerCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -31,6 +33,33 @@ const App: React.FC = () => {
   const timerIntervalRef = useRef<number | null>(null);
   const frameIntervalRef = useRef<number | null>(null);
   const feedbackAudioCtxRef = useRef<AudioContext | null>(null);
+
+  const fetchOutputDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const outputs = devices.filter(d => d.kind === 'audiooutput');
+      setOutputDevices(outputs);
+    } catch (err) {
+      console.error("Error fetching audio devices", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showSettings) {
+      fetchOutputDevices();
+    }
+  }, [showSettings, fetchOutputDevices]);
+
+  const handleOutputDeviceChange = async (deviceId: string) => {
+    setSelectedOutputDeviceId(deviceId);
+    if (managerRef.current) {
+      try {
+        await managerRef.current.setOutputDevice(deviceId);
+      } catch (err) {
+        console.error("Failed to change output device", err);
+      }
+    }
+  };
 
   const playFeedbackSound = (type: 'start' | 'stop') => {
     if (!feedbackAudioCtxRef.current) {
@@ -239,6 +268,9 @@ const App: React.FC = () => {
         await manager.connect();
         manager.setMicMuted(isMicMuted);
         manager.setSpeakerMuted(isSpeakerMuted);
+        if (selectedOutputDeviceId !== 'default') {
+          await manager.setOutputDevice(selectedOutputDeviceId);
+        }
         managerRef.current = manager;
         setStatus(ConnectionStatus.CONNECTED);
       } catch (err) { setStatus(ConnectionStatus.ERROR); }
@@ -379,6 +411,33 @@ const App: React.FC = () => {
                     <p className="text-[11px] text-blue-600 leading-relaxed">
                       To enable system audio, use the <strong>Screen Share</strong> toggle. Miles can then listen to videos or music with you.
                     </p>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-6">
+                <div className="flex items-center gap-3 text-[#5c633a]">
+                   <Volume2 size={20} className="opacity-70" />
+                   <h3 className="text-xs font-bold uppercase tracking-widest opacity-60">Miles's Voice Output</h3>
+                </div>
+                <div className="space-y-4">
+                  <div className="p-5 bg-[#f5f4e8] rounded-2xl border border-[#5c633a]/5 space-y-3">
+                    <p className="font-bold text-[#5c633a]">Output Device</p>
+                    <div className="relative group">
+                      <select 
+                        value={selectedOutputDeviceId}
+                        onChange={(e) => handleOutputDeviceChange(e.target.value)}
+                        className="w-full appearance-none bg-white px-4 py-3 pr-10 rounded-xl border border-[#5c633a]/10 text-sm text-[#5c633a] focus:outline-none focus:ring-2 focus:ring-[#c5d299] transition-all"
+                      >
+                        <option value="default">System Default</option>
+                        {outputDevices.map((device) => (
+                          <option key={device.deviceId} value={device.deviceId}>
+                            {device.label || `Output Device ${device.deviceId.slice(0, 5)}`}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5c633a]/40 pointer-events-none" />
+                    </div>
                   </div>
                 </div>
               </section>

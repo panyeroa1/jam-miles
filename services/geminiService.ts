@@ -168,6 +168,17 @@ export class GeminiLiveManager {
     }
   }
 
+  async setOutputDevice(deviceId: string) {
+    if (this.outputAudioContext && (this.outputAudioContext as any).setSinkId) {
+      try {
+        await (this.outputAudioContext as any).setSinkId(deviceId);
+      } catch (err) {
+        console.error("Failed to set audio output device", err);
+        throw err;
+      }
+    }
+  }
+
   async connect() {
     try {
       await this.initializeMemory();

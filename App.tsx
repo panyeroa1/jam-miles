@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GeminiLiveManager } from './services/geminiService';
 import { TranscriptionEntry, ConnectionStatus } from './types';
 import { 
-  Mic, Info, Square, MessageSquare, X, Camera, CameraOff, ScreenShare, MonitorOff, Play, User, ChevronRight, Sparkles, Video, VideoOff, Monitor, Zap
+  Mic, MicOff, Info, Square, MessageSquare, X, Camera, CameraOff, ScreenShare, MonitorOff, Play, User, Sparkles, Video, VideoOff, Monitor, Zap, Volume2, VolumeX
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -17,6 +17,8 @@ const App: React.FC = () => {
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const managerRef = useRef<GeminiLiveManager | null>(null);
@@ -51,7 +53,7 @@ const App: React.FC = () => {
   // Video Streaming Logic
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setIsCameraOn(true);
@@ -88,6 +90,22 @@ const App: React.FC = () => {
     stream?.getTracks().forEach(t => t.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
     setIsScreenSharing(false);
+  };
+
+  const toggleMic = () => {
+    const nextState = !isMicMuted;
+    setIsMicMuted(nextState);
+    if (managerRef.current) {
+      managerRef.current.setMicMuted(nextState);
+    }
+  };
+
+  const toggleSpeaker = () => {
+    const nextState = !isSpeakerMuted;
+    setIsSpeakerMuted(nextState);
+    if (managerRef.current) {
+      managerRef.current.setSpeakerMuted(nextState);
+    }
   };
 
   // Frame processing for Gemini
@@ -129,7 +147,11 @@ const App: React.FC = () => {
       const centerX = rect.width / 2;
       const centerY = rect.height / 2;
       const isMobile = rect.width < 640;
-      const baseRadius = isMobile ? 65 : 85; 
+      
+      // Scale down orb if video is on
+      const isVideoActive = isCameraOn || isScreenSharing;
+      const baseRadius = isVideoActive ? (isMobile ? 30 : 40) : (isMobile ? 65 : 85); 
+      
       ctx.clearRect(0, 0, rect.width, rect.height);
       const now = Date.now();
       const breathing = Math.sin(now / 1500) * 5 + Math.sin(now / 800) * 2;
@@ -137,36 +159,26 @@ const App: React.FC = () => {
       if (audioData.length > 0) {
         averageLevel = audioData.reduce((a, b) => a + b, 0) / audioData.length;
       }
-      const activePulse = (averageLevel / 255) * (isMobile ? 40 : 60);
-      const ringCount = isMobile ? 6 : 8;
+      const activePulse = (averageLevel / 255) * (isVideoActive ? 15 : (isMobile ? 40 : 60));
+      const ringCount = isVideoActive ? 3 : (isMobile ? 6 : 8);
+
+      // Draw rings
       for (let i = 1; i <= ringCount; i++) {
-        const ringRadius = baseRadius + (i * (isMobile ? 18 : 24)) + (breathing * 0.4);
+        const ringRadius = baseRadius + (i * (isVideoActive ? 8 : (isMobile ? 18 : 24))) + (breathing * 0.4);
         ctx.beginPath();
         ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
         ctx.lineWidth = 0.5;
-        ctx.strokeStyle = `rgba(92, 99, 58, ${0.03 - (i * 0.002)})`;
+        ctx.strokeStyle = `rgba(92, 99, 58, ${isVideoActive ? 0.1 : 0.03 - (i * 0.002)})`;
         ctx.stroke();
       }
+
+      // Draw core
       const coreRadius = baseRadius + (activePulse * 0.5) + (breathing * 0.5);
       ctx.beginPath();
       ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
-      ctx.fillStyle = '#c5d299';
+      ctx.fillStyle = isVideoActive ? 'rgba(197, 210, 153, 0.8)' : '#c5d299';
       ctx.fill();
 
-      if (isCameraOn || isScreenSharing) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
-        ctx.clip();
-        const v = videoRef.current;
-        if (v && v.readyState >= v.HAVE_ENOUGH_DATA) {
-          const vRatio = v.videoWidth / v.videoHeight;
-          let drawWidth = coreRadius * 2, drawHeight = coreRadius * 2;
-          if (vRatio > 1) drawWidth = drawHeight * vRatio; else drawHeight = drawWidth / vRatio;
-          ctx.drawImage(v, centerX - drawWidth / 2, centerY - drawHeight / 2, drawWidth, drawHeight);
-        }
-        ctx.restore();
-      }
       animationFrameId = requestAnimationFrame(render);
     };
     render();
@@ -203,6 +215,8 @@ const App: React.FC = () => {
       try {
         const manager = new GeminiLiveManager(handleMessage, (err) => setError(err), (data) => setAudioData(data), handleProfileUpdate);
         await manager.connect();
+        manager.setMicMuted(isMicMuted);
+        manager.setSpeakerMuted(isSpeakerMuted);
         managerRef.current = manager;
         setStatus(ConnectionStatus.CONNECTED);
       } catch (err) {
@@ -213,10 +227,9 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen-safe w-full flex flex-col overflow-hidden relative bg-[#fdfcf8] select-none">
-      {/* Hidden processing tools */}
       <canvas ref={processingCanvasRef} className="hidden" />
       
-      <header className="relative z-20 flex items-center justify-between px-6 py-6 md:px-10 md:py-10">
+      <header className="relative z-30 flex items-center justify-between px-6 py-6 md:px-10 md:py-10">
         <div className="flex-1 flex justify-start items-center gap-2">
           <button className="text-[#5c633a] hover:opacity-70 transition-opacity active:scale-95">
             <Info size={28} />
@@ -224,7 +237,7 @@ const App: React.FC = () => {
           {isSyncing && (
             <div className="flex items-center gap-1.5 px-3 py-1 bg-[#c5d299]/30 rounded-full animate-pulse border border-[#c5d299]/50">
                <Sparkles size={14} className="text-[#5c633a]" />
-               <span className="text-[10px] font-bold text-[#5c633a] uppercase tracking-wider hidden sm:inline">Learning Jamjam</span>
+               <span className="text-[10px] font-bold text-[#5c633a] uppercase tracking-wider hidden sm:inline">Learning</span>
             </div>
           )}
         </div>
@@ -241,78 +254,86 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 relative flex flex-col items-center justify-center">
-        <canvas ref={visualizerCanvasRef} className="w-full h-full max-h-[75vw] max-w-[75vw] md:max-h-[800px] md:max-w-[800px]" />
-        <video ref={videoRef} autoPlay playsInline muted className="hidden" />
+      <main className="flex-1 relative flex flex-col items-center justify-center overflow-hidden">
+        {/* Full View Video Feed */}
+        <div className={`absolute inset-0 transition-opacity duration-500 z-10 ${(isCameraOn || isScreenSharing) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+          <video 
+            ref={videoRef} 
+            autoPlay 
+            playsInline 
+            muted 
+            className="w-full h-full object-cover"
+          />
+          {/* Subtle overlay for better visibility of the orb and text */}
+          <div className="absolute inset-0 bg-black/10 pointer-events-none" />
+        </div>
+
+        {/* Visualizer Orb - Overlays video when active */}
+        <canvas ref={visualizerCanvasRef} className="relative z-20 w-full h-full max-h-[75vw] max-w-[75vw] md:max-h-[800px] md:max-w-[800px] pointer-events-none" />
       </main>
 
-      <footer className="relative z-20 pb-8 md:pb-12 px-6 flex flex-col items-center gap-6 w-full">
-        {/* Main Status Text */}
-        <div className="text-sm md:text-base text-[#5c633a]/70 font-medium h-12 px-8 text-center w-full max-w-[600px] line-clamp-2 italic leading-snug">
+      <footer className="relative z-30 pb-8 md:pb-12 px-6 flex flex-col items-center gap-6 w-full">
+        {/* Status Text with Dynamic Styling when Video is Active */}
+        <div className={`text-sm md:text-base font-medium h-12 px-8 text-center w-full max-w-[600px] line-clamp-2 italic leading-snug transition-colors duration-300 ${(isCameraOn || isScreenSharing) ? 'text-white drop-shadow-md' : 'text-[#5c633a]/70'}`}>
           {status === ConnectionStatus.CONNECTED ? (currentAssistantText || currentUserText || "Miles is listening...") : "Ready to launch your career, Jamjam?"}
         </div>
 
-        {/* Action Bar */}
-        <div className="bg-[#f5f4e8]/90 backdrop-blur-xl px-2 py-2 rounded-full flex items-center gap-2 sm:gap-4 shadow-2xl border border-[#5c633a]/10">
+        {/* Action Bar - Optimized to exactly 5 icons */}
+        <div className="bg-[#f5f4e8]/90 backdrop-blur-xl px-4 py-3 rounded-full flex items-center gap-3 sm:gap-6 shadow-2xl border border-[#5c633a]/10">
           
-          {/* Camera Toggle */}
+          {/* 1. Camera */}
           <button 
             onClick={isCameraOn ? stopCamera : startCamera}
-            className={`p-3 sm:p-4 rounded-full transition-all active:scale-90 ${isCameraOn ? 'bg-[#5c633a] text-white' : 'hover:bg-[#5c633a]/5 text-[#5c633a]'}`}
+            className={`p-3 rounded-full transition-all active:scale-90 ${isCameraOn ? 'bg-[#5c633a] text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`}
             title="Toggle Camera"
           >
             {isCameraOn ? <VideoOff size={24} /> : <Video size={24} />}
           </button>
 
-          {/* Screen Share Toggle */}
+          {/* 2. Mic */}
+          <button 
+            onClick={toggleMic}
+            className={`p-3 rounded-full transition-all active:scale-90 ${isMicMuted ? 'bg-[#ff4d4d] text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`}
+            title="Toggle Mic"
+          >
+            {isMicMuted ? <MicOff size={24} /> : <Mic size={24} />}
+          </button>
+
+          {/* 3. Main Session Toggle (Center) */}
+          <button 
+            onClick={toggleConnection} 
+            className={`p-5 rounded-full shadow-lg transition-all active:scale-95 flex items-center justify-center ${status === ConnectionStatus.CONNECTED ? 'bg-[#ff4d4d] text-white' : 'bg-[#5c633a] text-white'}`}
+          >
+            {status === ConnectionStatus.CONNECTED ? <Square size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
+          </button>
+
+          {/* 4. Screen Share */}
           <button 
             onClick={isScreenSharing ? stopScreenShare : startScreenShare}
-            className={`p-3 sm:p-4 rounded-full transition-all active:scale-90 ${isScreenSharing ? 'bg-[#5c633a] text-white' : 'hover:bg-[#5c633a]/5 text-[#5c633a]'}`}
+            className={`p-3 rounded-full transition-all active:scale-90 ${isScreenSharing ? 'bg-[#5c633a] text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`}
             title="Screen Share"
           >
             {isScreenSharing ? <MonitorOff size={24} /> : <Monitor size={24} />}
           </button>
 
-          {/* Center Play/Stop Button */}
-          <div className="h-10 w-[1px] bg-[#5c633a]/10 mx-1"></div>
-          
+          {/* 5. Speaker */}
           <button 
-            onClick={toggleConnection} 
-            className={`p-4 sm:p-5 rounded-full shadow-lg transition-all active:scale-95 flex items-center justify-center ${status === ConnectionStatus.CONNECTED ? 'bg-[#ff4d4d] text-white hover:bg-[#ff3333]' : 'bg-[#5c633a] text-white hover:opacity-90'}`}
+            onClick={toggleSpeaker}
+            className={`p-3 rounded-full transition-all active:scale-90 ${isSpeakerMuted ? 'bg-[#ff4d4d] text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`}
+            title="Toggle Speaker"
           >
-            {status === ConnectionStatus.CONNECTED ? <Square size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
+            {isSpeakerMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
           </button>
-          
-          <div className="h-10 w-[1px] bg-[#5c633a]/10 mx-1"></div>
-
-          {/* Quick Idea / Insight Button */}
-          <button 
-            className="p-3 sm:p-4 rounded-full text-[#5c633a] hover:bg-[#5c633a]/5 transition-all active:scale-90"
-            onClick={() => {
-              if (status === ConnectionStatus.CONNECTED) {
-                // Internal "Quick Insight" request
-                managerRef.current?.sendVideoFrame(''); // Trigger nudge if empty frame logic exists
-              }
-            }}
-            title="Quick Insight"
-          >
-            <Zap size={24} />
-          </button>
-
-          {/* Mic Visualizer / Status (Indicator only) */}
-          <div className="p-3 sm:p-4 rounded-full text-[#5c633a] opacity-40">
-            <Mic size={24} />
-          </div>
 
         </div>
       </footer>
 
       {showHistory && (
-        <div className="absolute inset-0 bg-black/10 backdrop-blur-[2px] z-30 flex justify-end">
+        <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px] z-40 flex justify-end">
           <div className="h-full w-full md:w-[450px] bg-[#fdfcf8] shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
             <div className="flex items-center justify-between px-8 py-10 border-b border-[#5c633a]/5">
               <h2 className="text-2xl font-bold text-[#5c633a]">Mentorship Log</h2>
-              <button onClick={() => setShowHistory(false)} className="p-2 bg-[#5c633a]/5 rounded-full transition-colors hover:bg-[#5c633a]/10"><X size={20} /></button>
+              <button onClick={() => setShowHistory(false)} className="p-2 bg-[#5c633a]/5 rounded-full"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-8 space-y-6">
               {history.map((entry, i) => (
@@ -325,12 +346,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
               ))}
-              {history.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-[#5c633a]/30 gap-3">
-                   <MessageSquare size={48} />
-                   <p className="font-medium">No messages yet. Say hi to Miles!</p>
-                </div>
-              )}
               <div ref={historyEndRef} />
             </div>
           </div>

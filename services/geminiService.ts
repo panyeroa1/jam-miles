@@ -138,6 +138,18 @@ export class GeminiLiveManager {
     });
   }
 
+  setMicMuted(muted: boolean) {
+    if (this.audioStream) {
+      this.audioStream.getAudioTracks().forEach(track => track.enabled = !muted);
+    }
+  }
+
+  setSpeakerMuted(muted: boolean) {
+    if (this.outputNode) {
+      this.outputNode.gain.value = muted ? 0 : 1;
+    }
+  }
+
   async connect() {
     try {
       await this.initializeMemory();

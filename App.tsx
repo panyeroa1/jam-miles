@@ -249,8 +249,11 @@ const App: React.FC = () => {
     <div className="h-screen-safe w-full flex flex-col overflow-hidden relative bg-[#fdfcf8] select-none">
       <canvas ref={processingCanvasRef} className="hidden" />
       <header className="relative z-30 flex items-center justify-between px-6 py-6 md:px-10 md:py-10">
-        <div className="flex-1 flex justify-start items-center gap-2">
-          <button onClick={() => setShowSettings(true)} className="text-[#5c633a] hover:opacity-70 transition-opacity active:scale-95"><Settings size={28} /></button>
+        <div className="flex-1 flex justify-start items-center gap-3">
+          <button onClick={() => setShowSettings(true)} className="text-[#5c633a] hover:opacity-70 transition-opacity active:scale-95" title="Settings"><Settings size={28} /></button>
+          <button onClick={toggleSpeaker} className={`p-2 rounded-full transition-all active:scale-90 ${isSpeakerMuted ? 'text-[#ff4d4d]' : 'text-[#5c633a] hover:opacity-70'}`} title="Toggle Speaker">
+            {isSpeakerMuted ? <VolumeX size={28} /> : <Volume2 size={28} />}
+          </button>
           {isSyncing && (
             <div className="flex items-center gap-1.5 px-3 py-1 bg-[#c5d299]/30 rounded-full animate-pulse border border-[#c5d299]/50">
                <Sparkles size={14} className="text-[#5c633a]" />
@@ -313,10 +316,6 @@ const App: React.FC = () => {
           
           <button onClick={togglePhoneMode} className={`p-3 rounded-full transition-all active:scale-90 ${isPhoneMode ? 'bg-blue-500 text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`} title="Phone Call Mode">
             {isPhoneMode ? <PhoneOff size={22} /> : <Phone size={22} />}
-          </button>
-
-          <button onClick={toggleSpeaker} className={`p-3 rounded-full transition-all active:scale-90 ${isSpeakerMuted ? 'bg-[#ff4d4d] text-white' : 'hover:bg-[#5c633a]/10 text-[#5c633a]'}`} title="Toggle Speaker">
-            {isSpeakerMuted ? <VolumeX size={22} /> : <Volume2 size={22} />}
           </button>
         </div>
       </footer>

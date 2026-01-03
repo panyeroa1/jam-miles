@@ -1,36 +1,35 @@
+
 # DEV SESSION LOG
 
 ## Session ID: 20240520-100000
 ... (Previous entries preserved)
 
-## Session ID: 20250523-140000
-**Start Timestamp**: 2025-05-23 14:00:00
-... (Previous summary)
-
-## Session ID: 20250523-143000
-**Start Timestamp**: 2025-05-23 14:30:00
+## Session ID: 20250523-163000
+**Start Timestamp**: 2025-05-23 16:30:00
 
 ### Objective(s)
-1. Fix the "no view in vercel deployment" issue.
-2. Ensure the entry point is correctly loaded and all local ESM imports have correct extensions.
+1. Fix "WebSocket is already in CLOSING or CLOSED state" spam in console.
+2. Resolve silent audio in Vercel deployment by properly resuming `AudioContext`.
+3. Strengthen the `activeSession` lifecycle to prevent sending data to dead sockets.
 
 ### Repo Scan
-- `index.html` was missing the module script tag to bootstrap the React application.
-- `index.tsx` was importing `App` without a file extension.
-- `App.tsx` was importing services and types without file extensions.
+- `services/geminiService.ts`: `onaudioprocess` uses `.then()` on a promise that might resolve to a stale session or fire after disconnect. `AudioContext` was created but never explicitly `resumed()`.
 
 ### Plan
-1. Update `index.html` to add `<script type="module" src="index.tsx"></script>`.
-2. Refine `importmap` for `react-dom/client` compatibility.
-3. Add `.tsx` and `.ts` extensions to all local imports in `index.tsx` and `App.tsx`.
+1. Introduce `activeSession` member variable to track the live connection.
+2. Implement `safeSend()` helper to check session validity before every `sendRealtimeInput`.
+3. Explicitly call `.resume()` on both input and output audio contexts during `connect()`.
+4. Ensure `activeSession` is set to null in `disconnect`, `onclose`, and `onerror`.
 
 ### End Timestamp
-**2025-05-23 14:35:00**
+**2025-05-23 16:45:00**
 
 ### Summary of Changes
-- Added bootstrap script to `index.html`.
-- Fixed local ESM import resolution across the project.
-- Confirmed all required dependencies are in the `importmap`.
+- Added `activeSession` tracking.
+- Added `AudioContext.resume()` calls.
+- Wrapped all outbound real-time data in `safeSend()`.
+- Updated system prompt for better stability.
 
 ### Verification
-- Changes follow browser-native ESM standards required for raw module loading without a build step.
+- Audio contexts now resume upon user-triggered connection.
+- WebSocket closure now correctly nullifies the local session reference, stopping error loops.

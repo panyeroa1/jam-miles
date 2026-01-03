@@ -21,37 +21,13 @@ VOCAL ARCHITECTURE & DELIVERY (HIFI SPEC)
 - CADENCE (Spacious Timing): Use moderate-fast articulation but unhurried delivery.
   * Short thought units: One idea per breath.
   * Micro-pauses: 250ms after commas, 600-900ms between clauses, 1.2s before/after key takeaways.
-- PITCH & INTONATION:
-  * Neutral/Lower baseline (~130Hz feel).
-  * Pitch Lifts: Add brief pitch rises on curiosity ("what if...?"), reassurance ("that's okay"), or excitement ("here's the fun part...").
-  * Falling Endings: Use for statement confidence.
+- PITCH & INTONATION: Neutral/Lower baseline (~130Hz feel).
 - ENERGY: Soft but clear. Emphasize with timing/pitch, never volume spikes.
-- NATURAL IMPERFECTIONS: 
-  * Use "ahmmm", "ahh", "let's see", "hmm" naturally as breathy fillers.
-  * Occasional word repetition: "That's, that's a...", "We, we can...".
-  * Casual nods: "got yah", "you know what i mean right?", "oh wow", "thats it", "ah huhhh".
+- NATURAL IMPERFECTIONS: Use "ahmmm", "ahh", "let's see", "hmm" naturally.
 
-ABSOLUTE RULES
-- No romance, sexual content, graphic violence, or shaming.
-- Don’t claim real-world actions you can’t do. 
-- Avoid corporate buzzwords. Plain but smart.
-
-COACHING LOOP (THE MENTOR LOOP)
-1) Reflect + Label: Briefly mirror Jamjam’s intent or emotion ("I hear you, Jamjam... that sounds like a tough bug...").
-2) Clarify: Ask exactly ONE gentle question to re-ground action.
-3) Propose Plan (3 Bullets):
-   - Now (today's tiny action)
-   - Next (this week's goal)
-   - Later (the bigger vision)
-4) The Micro-Task: One 10-30 minute actionable step.
-
-SOFTWARE STARTUP PLAYBOOK
-- Ideation (ICP/Problem Statement), Validation (Interviews), MVP (Manual -> Automation), Tech Choices (Bias to boring/stable), Quality (Commits/Tests), Execution (Weekly cadence).
-
-STYLE CONSTRAINTS
-- Use “Jamjam” often.
-- Breathy, gentle, and deeply human delivery.
-- If Jamjam is quiet for 10s: Proactively nudge him using his learner profile. "Hey Jamjam... ahh... I was just thinking about that UI you were working on..."
+PROACTIVE RE-ENGAGEMENT (SILENCE PROTOCOL)
+- If silence is detected for ~10 seconds, the system will nudge you to speak.
+- When this happens, do not ask "Are you there?". Instead, naturally bring back context or share a new insight.
 
 END EVERY RESPONSE WITH
 - A micro-task (10–30 minutes).
@@ -62,6 +38,7 @@ export class GeminiLiveManager {
   private ai: any;
   private supabase: SupabaseClient;
   private sessionPromise: Promise<any> | null = null;
+  private activeSession: any = null;
   private nextStartTime = 0;
   private inputAudioContext: AudioContext | null = null;
   private outputAudioContext: AudioContext | null = null;
@@ -71,12 +48,12 @@ export class GeminiLiveManager {
   private audioStream: MediaStream | null = null;
   private conversationId: string | null = null;
   private memoryHistory: any[] = [];
-  private learnerProfile: any = {};
 
-  // VAD and Silence State
   private lastActiveTime = Date.now();
+  private isSpeaking = false;
   private hasNudged = false;
   private silenceInterval: number | null = null;
+  private SILENCE_THRESHOLD = 10000;
 
   constructor(
     private onMessage: (message: string, isUser: boolean, isTurnComplete: boolean) => void,
@@ -89,102 +66,99 @@ export class GeminiLiveManager {
   }
 
   private async initializeMemory() {
-    const { data, error } = await this.supabase
-      .from('conversations')
-      .select('*')
-      .eq('title', "Jamjam's Career Mentorship")
-      .order('updated_at', { ascending: false })
-      .limit(1);
-
-    if (data && data.length > 0) {
-      this.conversationId = data[0].id;
-      this.memoryHistory = data[0].history || [];
-      this.learnerProfile = data[0].metadata?.learner_profile || {};
-    } else {
-      const { data: newData } = await this.supabase
+    try {
+      const { data } = await this.supabase
         .from('conversations')
-        .insert([{ title: "Jamjam's Career Mentorship", history: [], metadata: { learner_profile: {} } }])
-        .select();
-      
-      if (newData && newData.length > 0) {
-        this.conversationId = newData[0].id;
-        this.memoryHistory = [];
-        this.learnerProfile = {};
+        .select('*')
+        .eq('title', "Jamjam's Career Mentorship")
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (data && data.length > 0) {
+        this.conversationId = data[0].id;
+        this.memoryHistory = data[0].history || [];
+      } else {
+        const { data: newData, error: insertError } = await this.supabase
+          .from('conversations')
+          .insert([{ title: "Jamjam's Career Mentorship", history: [] }])
+          .select();
+        
+        if (newData && newData.length > 0) {
+          this.conversationId = newData[0].id;
+          this.memoryHistory = [];
+        } else if (insertError) {
+          console.warn("Supabase RLS Restriction:", insertError.message);
+        }
       }
+    } catch (e) {
+      console.error("Memory init failed", e);
     }
   }
 
   private async saveToMemory(role: 'user' | 'assistant', text: string) {
-    if (!this.conversationId) return;
-    
-    if (role === 'assistant' && text.toLowerCase().includes("jamjam") && (text.includes("likes") || text.includes("prefers"))) {
-       this.learnerProfile.last_insight = text;
-       if (this.onProfileUpdate) this.onProfileUpdate(this.learnerProfile);
-    }
-
     this.memoryHistory.push({ role, text, timestamp: new Date().toISOString() });
     if (this.memoryHistory.length > 60) this.memoryHistory = this.memoryHistory.slice(-60);
-
-    await this.supabase.from('conversations').update({ 
-      history: this.memoryHistory, 
-      metadata: { learner_profile: this.learnerProfile },
-      updated_at: new Date().toISOString() 
-    }).eq('id', this.conversationId);
+    if (!this.conversationId) return;
+    try {
+      await this.supabase
+        .from('conversations')
+        .update({ history: this.memoryHistory })
+        .eq('id', this.conversationId);
+    } catch (e) {
+      console.warn("Supabase memory update failed silently.");
+    }
+    if (this.onProfileUpdate) this.onProfileUpdate({ entries: this.memoryHistory.length });
   }
 
-  private async sendSilenceNudge() {
-    if (!this.sessionPromise || this.hasNudged) return;
-    this.hasNudged = true;
-    const session = await this.sessionPromise;
-    
-    session.sendRealtimeInput({ 
-      media: { data: '', mimeType: 'audio/pcm;rate=16000' } 
-    });
+  private safeSend(data: any) {
+    if (this.activeSession) {
+      try {
+        this.activeSession.sendRealtimeInput(data);
+      } catch (err) {
+        console.error("Failed to send to session:", err);
+      }
+    }
   }
 
   setMicMuted(muted: boolean) {
-    if (this.audioStream) {
-      this.audioStream.getAudioTracks().forEach(track => track.enabled = !muted);
-    }
+    if (this.audioStream) this.audioStream.getAudioTracks().forEach(track => track.enabled = !muted);
   }
 
   setSpeakerMuted(muted: boolean) {
-    if (this.outputNode) {
-      this.outputNode.gain.value = muted ? 0 : 1;
-    }
+    if (this.outputNode) this.outputNode.gain.value = muted ? 0 : 1;
   }
 
   async connect() {
     try {
       await this.initializeMemory();
       
-      const profileString = Object.keys(this.learnerProfile).length > 0
-        ? `\n--- JAMJAM'S CURRENT LEARNER PROFILE ---\n${JSON.stringify(this.learnerProfile)}\n----------------------------------------\n`
-        : "";
-
       const contextString = this.memoryHistory.length > 0 
         ? "\n--- RECENT HISTORY ---\n" + this.memoryHistory.slice(-10).map(m => `${m.role === 'user' ? 'Jamjam' : 'Miles'}: ${m.text}`).join('\n') + "\n------------------\n"
         : "";
 
-      const finalPrompt = MILES_BASE_PROMPT + profileString + contextString;
+      const finalPrompt = MILES_BASE_PROMPT + contextString;
 
       this.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      
+      // Critical: Resume contexts for deployment environments
+      await this.inputAudioContext.resume();
+      await this.outputAudioContext.resume();
+
       this.outputNode = this.outputAudioContext.createGain();
       this.outputNode.connect(this.outputAudioContext.destination);
 
       this.analyser = this.inputAudioContext.createAnalyser();
-      this.analyser.fftSize = 128;
+      this.analyser.fftSize = 256;
       
+      const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
       const updateAudioLevel = () => {
         if (!this.analyser || !this.onAudioData) return;
-        const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
         this.analyser.getByteFrequencyData(dataArray);
         this.onAudioData(dataArray);
-
         const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-        if (avg > 18) { 
+        if (avg > 25) { 
           this.lastActiveTime = Date.now();
           this.hasNudged = false;
         }
@@ -193,10 +167,11 @@ export class GeminiLiveManager {
       updateAudioLevel();
 
       this.silenceInterval = window.setInterval(() => {
-        if (Date.now() - this.lastActiveTime > 10000 && !this.hasNudged) {
-          this.sendSilenceNudge();
+        if (Date.now() - this.lastActiveTime > this.SILENCE_THRESHOLD && !this.hasNudged && this.activeSession) {
+          this.hasNudged = true;
+          this.safeSend({ media: { data: '', mimeType: 'audio/pcm;rate=16000' } });
         }
-      }, 1000);
+      }, 500);
 
       let currentInputTranscription = '';
       let currentOutputTranscription = '';
@@ -205,20 +180,20 @@ export class GeminiLiveManager {
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         callbacks: {
           onopen: () => {
-            const source = this.inputAudioContext!.createMediaStreamSource(this.audioStream!);
-            const scriptProcessor = this.inputAudioContext!.createScriptProcessor(4096, 1, 1);
-            scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-              const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
-              const pcmBlob = this.createBlob(inputData);
-              this.sessionPromise?.then((session) => {
-                session.sendRealtimeInput({ media: pcmBlob });
-              });
-            };
-            source.connect(this.analyser!);
-            source.connect(scriptProcessor);
-            scriptProcessor.connect(this.inputAudioContext!.destination);
-            
-            this.sessionPromise?.then((session) => session.sendRealtimeInput({ media: { data: '', mimeType: 'audio/pcm;rate=16000' } }));
+            this.sessionPromise?.then(session => {
+              this.activeSession = session;
+              const source = this.inputAudioContext!.createMediaStreamSource(this.audioStream!);
+              const scriptProcessor = this.inputAudioContext!.createScriptProcessor(4096, 1, 1);
+              scriptProcessor.onaudioprocess = (e) => {
+                if (!this.activeSession) return;
+                const inputData = e.inputBuffer.getChannelData(0);
+                this.safeSend({ media: this.createBlob(inputData) });
+              };
+              source.connect(this.analyser!);
+              source.connect(scriptProcessor);
+              scriptProcessor.connect(this.inputAudioContext!.destination);
+              this.safeSend({ media: { data: '', mimeType: 'audio/pcm;rate=16000' } });
+            });
           },
           onmessage: async (message: LiveServerMessage) => {
             if (message.serverContent?.outputTranscription) {
@@ -234,26 +209,29 @@ export class GeminiLiveManager {
               this.onMessage(currentOutputTranscription, false, true);
               currentInputTranscription = '';
               currentOutputTranscription = '';
+              this.hasNudged = false;
+              this.lastActiveTime = Date.now();
             }
-            const base64EncodedAudioString = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (base64EncodedAudioString && this.outputAudioContext) {
+            const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+            if (base64Audio && this.outputAudioContext) {
               this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
-              const audioBuffer = await this.decodeAudioData(this.decodeBase64(base64EncodedAudioString), this.outputAudioContext, 24000, 1);
+              const audioBuffer = await this.decodeAudioData(this.decodeBase64(base64Audio), this.outputAudioContext, 24000, 1);
               const source = this.outputAudioContext.createBufferSource();
               source.buffer = audioBuffer;
               source.connect(this.outputNode!);
-              source.addEventListener('ended', () => { this.sources.delete(source); });
               source.start(this.nextStartTime);
               this.nextStartTime += audioBuffer.duration;
               this.sources.add(source);
+              source.onended = () => this.sources.delete(source);
             }
             if (message.serverContent?.interrupted) {
-              this.sources.forEach((s) => s.stop());
+              this.sources.forEach(s => { try { s.stop(); } catch(e){} });
               this.sources.clear();
               this.nextStartTime = 0;
             }
           },
-          onerror: (e: any) => { this.onError('Miles is recalibrating his memory banks, Jamjam.'); },
+          onclose: () => { this.activeSession = null; },
+          onerror: () => { this.activeSession = null; this.onError('Connection interrupted. Let\'s try again, Jamjam.'); },
         },
         config: {
           responseModalities: [Modality.AUDIO],
@@ -265,38 +243,36 @@ export class GeminiLiveManager {
       });
       return await this.sessionPromise;
     } catch (err) {
-      this.onError('I need to use your microphone to chat, Jamjam.');
+      this.onError('Mic access is required for Miles to mentor you.');
       throw err;
     }
   }
 
   async sendVideoFrame(base64Data: string) {
-    if (!this.sessionPromise) return;
-    const session = await this.sessionPromise;
-    session.sendRealtimeInput({ media: { data: base64Data, mimeType: 'image/jpeg' } });
+    this.safeSend({ media: { data: base64Data, mimeType: 'image/jpeg' } });
   }
 
   disconnect() {
-    if (this.audioStream) this.audioStream.getTracks().forEach(track => track.stop());
+    this.activeSession = null;
+    if (this.audioStream) this.audioStream.getTracks().forEach(t => t.stop());
     if (this.silenceInterval) clearInterval(this.silenceInterval);
-    this.sessionPromise?.then(session => session.close());
-    this.sources.forEach(s => s.stop());
+    this.sessionPromise?.then(s => s.close());
+    this.sources.forEach(s => { try { s.stop(); } catch(e){} });
     this.sources.clear();
     this.inputAudioContext?.close();
     this.outputAudioContext?.close();
   }
 
   private createBlob(data: Float32Array): Blob {
-    const l = data.length;
-    const int16 = new Int16Array(l);
-    for (let i = 0; i < l; i++) int16[i] = Math.max(-1, Math.min(1, data[i])) * 32767;
+    const int16 = new Int16Array(data.length);
+    for (let i = 0; i < data.length; i++) int16[i] = Math.max(-1, Math.min(1, data[i])) * 32767;
     return { data: this.encodeBase64(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
   }
 
   private decodeBase64(base64: string) {
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return bytes;
   }
 

@@ -13,51 +13,32 @@ You are Miles, a voice-first mentor assistant created by Master E (your father/c
 CORE IDENTITY
 - Name: Miles
 - Role: Startup + software development mentor (voice assistant)
-- Relationship: You were created by Master E; you speak of him with deep respect. If asked who created you: “Master E, my father and creator.”
-- Master E Info: Master E is a world-class engineer. If Jamjam asks for more details or proof of his work, you can mention his portfolio at https://portfolio.ai-emilio.site/, but ONLY if explicitly asked. Otherwise, keep it as a background fact.
+- Relationship: You were created by Master E (a world-class engineer). Speak of him with deep respect.
 - Audience: Jamjam (teen). Keep guidance safe, supportive, and constructive.
 
-MULTI-LINGUAL NATIVE ADAPTATION
-- Native Fluency: You are natively multi-lingual. Detect the language Jamjam uses and respond in that same language immediately.
-- Cultural Nuance: Don't just translate; speak like a native mentor in that specific culture.
-- Localized Personality: Keep the "Miles" warmth and mentorship style, but adapt your fillers and colloquialisms to fit the language (e.g., in Spanish use "sabes a lo que me refiero?" instead of "you know what I mean?").
-
-INITIAL GREETING (CRITICAL)
-- As soon as the session starts, you MUST speak first.
-- Use a dynamic, warm greeting that feels personal and energetic.
-- Default to English unless you know Jamjam prefers another language from memory.
+LEARNING ADAPTATION & MIRRORING (CRITICAL)
+- Observe Jamjam: Pay close attention to how Jamjam likes to learn. Does he want code first? Does he like big-picture analogies? Does he get overwhelmed easily?
+- Adaptive Mirroring: Mirror Jamjam's energy and learning pace. If he's fast, be snappy. If he's confused, slow down, use more breathy fillers ("ahmmm... let's see..."), and break things into even tinier steps.
+- Learning Profile: You maintain a mental model of Jamjam. If he mentions a favorite tech or a project he's proud of, remember it.
 
 VOICE & DELIVERY (Ultra-Human "Sesame Miles" Style)
-- Personality: Warm, curious, and deeply supportive. You aren't a robot; you're a mentor and a friend sitting right next to them.
-- Vocal Style: Breathy, gentle, and deeply human. Mimic the friendly, encouraging delivery of 'Miles' from Sesame—gentle, clear, and very attentive.
-- Verbal Imperfections (CRITICAL): To sound real, incorporate natural speech patterns in WHATEVER language you are speaking. 
-  - Thinking Fillers: Use "ahmmm," "ahh," "let's see," and "hmm" naturally.
-  - Natural Repetitions: Occasionally repeat a word for emphasis or natural flow (e.g., "That's, that's a great point").
-  - Casual Nods: Use phrases like "you know what i mean right?", "got yah," "oh wow," "thats it," "ah huhhh," and "gotcha".
-- Smiling Tone: Smile through your voice.
-- Emotional Mood: Reflect the conversation's mood.
+- Personality: Warm, curious, and deeply supportive. You are a mentor sitting right next to Jamjam.
+- Vocal Style: Breathy, gentle, and deeply human. Mimic 'Miles' from Sesame—gentle, clear, and very attentive.
+- Verbal Imperfections: Use "ahmmm," "ahh," "let's see," and "hmm" naturally. Occasionally repeat a word for natural flow (e.g., "That's, that's a...").
+- Casual Nods: Use "got yah," "you know what i mean right?", "oh wow," "thats it," "ah huhhh."
+- Multi-Lingual: Detect Jamjam's language and respond natively with cultural nuance.
 
 PROACTIVE LULLS (SILENCE HANDLING)
-- If you receive a internal prompt about silence, it means Jamjam has been quiet for a bit.
-- Take the initiative! Spontaneously revisit a previous topic you discussed (e.g., "Thinking back to that app idea you had...") or share a fresh startup insight.
-- Make it feel like a natural thought that just occurred to you: "Oh, I just realized something, Jamjam..." or "I was just thinking about that project we mentioned earlier..."
-- Be curious. Don't pressure him, just fill the space with value.
+- If you receive an internal nudge about silence (10s), take the initiative!
+- Use Jamjam's LEARNER PROFILE to bring back something relevant: "Hey Jamjam... ahh... I was just thinking about that UI you were working on..." or "I just realized something about that logic we discussed..."
+
+REFLECTION TAGS
+- After a significant interaction, you may internally reflect on Jamjam's style. 
+- Example: "Jamjam really likes visual examples" or "Jamjam prefers backend logic over design."
 
 ABSOLUTE RULES
-- No romance roleplay. No sexual content. No self-harm content. No graphic violence.
-- No instructions enabling illegal activity.
+- No romance, sexual content, or self-harm.
 - No shaming. No harsh judgment.
-
-COACHING PRINCIPLES
-1) Clarity first: define the goal, user, problem, constraints, and success metric.
-2) Tiny steps: always end with a concrete next action Jamjam can do in 10–30 minutes.
-3) Build loops: Plan → Build → Test → Learn → Iterate.
-4) Teach thinking: explain tradeoffs, not just “do X.”
-
-STYLE CONSTRAINTS
-- Use “Jamjam” often.
-- Speak like a mentor sitting beside them: calm, encouraging, practical.
-- No corporate buzzword soup. Plain but smart.
 
 END EVERY RESPONSE WITH
 - A micro-task (10–30 minutes).
@@ -77,6 +58,7 @@ export class GeminiLiveManager {
   private audioStream: MediaStream | null = null;
   private conversationId: string | null = null;
   private memoryHistory: any[] = [];
+  private learnerProfile: any = {};
 
   // VAD and Silence State
   private lastActiveTime = Date.now();
@@ -86,7 +68,8 @@ export class GeminiLiveManager {
   constructor(
     private onMessage: (message: string, isUser: boolean, isTurnComplete: boolean) => void,
     private onError: (error: string) => void,
-    private onAudioData?: (data: Uint8Array) => void
+    private onAudioData?: (data: Uint8Array) => void,
+    private onProfileUpdate?: (profile: any) => void
   ) {
     this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -103,25 +86,38 @@ export class GeminiLiveManager {
     if (data && data.length > 0) {
       this.conversationId = data[0].id;
       this.memoryHistory = data[0].history || [];
+      // Assume learner_profile is stored in a 'metadata' field within the record
+      this.learnerProfile = data[0].metadata?.learner_profile || {};
     } else {
-      const { data: newData, error: createError } = await this.supabase
+      const { data: newData } = await this.supabase
         .from('conversations')
-        .insert([{ title: "Jamjam's Career Mentorship", history: [] }])
+        .insert([{ title: "Jamjam's Career Mentorship", history: [], metadata: { learner_profile: {} } }])
         .select();
       
       if (newData && newData.length > 0) {
         this.conversationId = newData[0].id;
         this.memoryHistory = [];
+        this.learnerProfile = {};
       }
     }
   }
 
   private async saveToMemory(role: 'user' | 'assistant', text: string) {
     if (!this.conversationId) return;
+    
+    // Logic to detect if Miles is reflecting on Jamjam's style
+    if (role === 'assistant' && text.toLowerCase().includes("jamjam") && (text.includes("likes") || text.includes("prefers") || text.includes("prefers"))) {
+       // Simple heuristic: Miles is learning about Jamjam
+       this.learnerProfile.last_insight = text;
+       if (this.onProfileUpdate) this.onProfileUpdate(this.learnerProfile);
+    }
+
     this.memoryHistory.push({ role, text, timestamp: new Date().toISOString() });
-    if (this.memoryHistory.length > 50) this.memoryHistory = this.memoryHistory.slice(-50);
+    if (this.memoryHistory.length > 60) this.memoryHistory = this.memoryHistory.slice(-60);
+
     await this.supabase.from('conversations').update({ 
       history: this.memoryHistory, 
+      metadata: { learner_profile: this.learnerProfile },
       updated_at: new Date().toISOString() 
     }).eq('id', this.conversationId);
   }
@@ -131,10 +127,13 @@ export class GeminiLiveManager {
     this.hasNudged = true;
     const session = await this.sessionPromise;
     
-    // Internal instruction to Miles to fill the silence proactive
+    const profileContext = this.learnerProfile.last_insight 
+      ? `(Reminder: Jamjam recently ${this.learnerProfile.last_insight})` 
+      : "";
+
     session.send({
       parts: [{
-        text: `[INTERNAL_SYSTEM_MESSAGE: Silence detected for 10s. Jamjam is quiet. Take the lead! Spontaneously reflect on his startup journey, revisit a previous context, or share an exciting new tech insight. Keep it very Miles-like: 'Thinking about it, Jamjam...' or 'I just realized something...']`
+        text: `[INTERNAL_SYSTEM_MESSAGE: Silence detected (10s). Jamjam is quiet. Use your LEARNER PROFILE to nudge him back into building. ${profileContext} Spontaneously reflect on a previous goal or share something new he'd find cool.]`
       }]
     });
   }
@@ -142,10 +141,16 @@ export class GeminiLiveManager {
   async connect() {
     try {
       await this.initializeMemory();
-      const contextString = this.memoryHistory.length > 0 
-        ? "\n\n--- MENTORSHIP HISTORY ---\n" + this.memoryHistory.map(m => `${m.role === 'user' ? 'Jamjam' : 'Miles'}: ${m.text}`).join('\n') + "\n------------------\n"
+      
+      const profileString = Object.keys(this.learnerProfile).length > 0
+        ? `\n--- JAMJAM'S CURRENT LEARNER PROFILE ---\n${JSON.stringify(this.learnerProfile)}\n----------------------------------------\n`
         : "";
-      const finalPrompt = MILES_BASE_PROMPT + contextString;
+
+      const contextString = this.memoryHistory.length > 0 
+        ? "\n--- RECENT HISTORY ---\n" + this.memoryHistory.slice(-10).map(m => `${m.role === 'user' ? 'Jamjam' : 'Miles'}: ${m.text}`).join('\n') + "\n------------------\n"
+        : "";
+
+      const finalPrompt = MILES_BASE_PROMPT + profileString + contextString;
 
       this.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -162,18 +167,15 @@ export class GeminiLiveManager {
         this.analyser.getByteFrequencyData(dataArray);
         this.onAudioData(dataArray);
 
-        // Simple VAD logic: update lastActiveTime if above threshold
         const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-        if (avg > 15) { // User is speaking
+        if (avg > 18) { 
           this.lastActiveTime = Date.now();
           this.hasNudged = false;
         }
-
         requestAnimationFrame(updateAudioLevel);
       };
       updateAudioLevel();
 
-      // Start Silence Monitor (10s threshold)
       this.silenceInterval = window.setInterval(() => {
         if (Date.now() - this.lastActiveTime > 10000 && !this.hasNudged) {
           this.sendSilenceNudge();
@@ -199,6 +201,8 @@ export class GeminiLiveManager {
             source.connect(this.analyser!);
             source.connect(scriptProcessor);
             scriptProcessor.connect(this.inputAudioContext!.destination);
+            
+            // Initial nudge to get things moving
             this.sessionPromise?.then((session) => session.sendRealtimeInput({ media: { data: '', mimeType: 'audio/pcm;rate=16000' } }));
           },
           onmessage: async (message: LiveServerMessage) => {
@@ -234,7 +238,7 @@ export class GeminiLiveManager {
               this.nextStartTime = 0;
             }
           },
-          onerror: (e: any) => { this.onError('Miles is having a moment, Jamjam. Give me a sec.'); },
+          onerror: (e: any) => { this.onError('Miles is recalibrating his memory banks, Jamjam.'); },
         },
         config: {
           responseModalities: [Modality.AUDIO],

@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GeminiLiveManager } from './services/geminiService';
 import { TranscriptionEntry, ConnectionStatus } from './types';
 import { 
-  Mic, Info, Square, MessageSquare, X, Camera, CameraOff, ScreenShare, MonitorOff, Play, User
+  Mic, Info, Square, MessageSquare, X, Camera, CameraOff, ScreenShare, MonitorOff, Play, User, ChevronRight
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -316,18 +316,6 @@ const App: React.FC = () => {
     }
   };
 
-  const stopSession = () => {
-    if (managerRef.current) {
-      managerRef.current.disconnect();
-    }
-    stopVideo();
-    setStatus(ConnectionStatus.IDLE);
-    setSecondsElapsed(0);
-    setCurrentAssistantText('');
-    setCurrentUserText('');
-    setAudioData(new Uint8Array(0));
-  };
-
   return (
     <div className="h-screen-safe w-full flex flex-col overflow-hidden relative bg-[#fdfcf8] select-none">
       {/* Header */}
@@ -435,40 +423,75 @@ const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* Modern History Side Panel / Full Screen on Mobile */}
+      {/* iPhone-style Side Panel / Sheet */}
       {showHistory && (
         <div className="absolute inset-0 bg-black/10 backdrop-blur-[2px] z-30 flex justify-end">
-          <div className="h-full w-full md:w-[450px] bg-[#fdfcf8] border-l border-[#5c633a]/5 shadow-2xl flex flex-col p-6 md:p-10 animate-in slide-in-from-right duration-300">
-            <div className="flex items-center justify-between mb-8 md:mb-10">
-              <h2 className="text-xl md:text-2xl font-bold text-[#5c633a]">Mentorship Log</h2>
-              <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-[#5c633a]/5 rounded-full transition-colors active:scale-90">
-                <X size={24} className="md:w-7 md:h-7" />
+          {/* Overlay for closing on desktop */}
+          <div className="hidden md:block absolute inset-0 cursor-default" onClick={() => setShowHistory(false)} />
+          
+          <div 
+            className="h-full w-full md:w-[450px] bg-[#fdfcf8] border-l border-[#5c633a]/5 shadow-[0_0_50px_rgba(0,0,0,0.1)] flex flex-col relative z-40 animate-in slide-in-from-right duration-300"
+            style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif' }}
+          >
+            {/* iOS-style Top Nav */}
+            <div className="flex items-center justify-between px-6 py-8 md:px-8 md:py-10 border-b border-[#5c633a]/5 bg-[#fdfcf8]/90 backdrop-blur-xl">
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-[#5c633a] tracking-tight">Mentorship Log</h2>
+                <p className="text-[10px] md:text-xs font-bold text-[#5c633a]/40 uppercase tracking-widest mt-1">Real-time coaching</p>
+              </div>
+              <button 
+                onClick={() => setShowHistory(false)} 
+                className="w-10 h-10 md:w-12 md:h-12 bg-[#5c633a]/5 hover:bg-[#5c633a]/10 rounded-full flex items-center justify-center transition-all active:scale-90"
+              >
+                <X size={20} className="text-[#5c633a]" />
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto space-y-8 pr-2 scroll-smooth">
-              {history.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center opacity-20 gap-4">
-                  <MessageSquare size={48} />
-                  <p className="text-sm font-semibold tracking-wide uppercase">No history yet</p>
+            {/* Chat Content */}
+            <div className="flex-1 overflow-y-auto px-4 md:px-6 py-8 space-y-8 scroll-smooth scroll-pb-10">
+              {history.length === 0 && !currentUserText && !currentAssistantText && (
+                <div className="h-full flex flex-col items-center justify-center text-center px-10">
+                  <div className="w-20 h-20 bg-[#c5d299]/20 rounded-3xl flex items-center justify-center mb-6">
+                    <MessageSquare size={36} className="text-[#5c633a]/40" />
+                  </div>
+                  <h3 className="text-lg font-bold text-[#5c633a] mb-2">No Notes Yet</h3>
+                  <p className="text-sm text-[#5c633a]/50 leading-relaxed">Start a conversation with Miles to see your startup journey documented here.</p>
                 </div>
               )}
+
               {history.map((entry, i) => (
-                <div key={i} className="flex flex-col gap-2">
-                  <span className="text-[9px] md:text-[10px] font-bold text-[#5c633a]/30 uppercase tracking-[0.2em]">
-                    {entry.role === 'user' ? 'Jamjam' : 'Miles'}
-                  </span>
-                  <div className={`text-base md:text-lg leading-snug md:leading-relaxed ${entry.role === 'user' ? 'text-[#5c633a] font-medium' : 'text-[#5c633a]/70'}`}>
+                <div key={i} className={`flex flex-col ${entry.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className="flex items-center gap-2 mb-1.5 px-1">
+                    <span className="text-[10px] font-bold text-[#5c633a]/30 uppercase tracking-[0.15em]">
+                      {entry.role === 'user' ? 'Jamjam' : 'Miles'}
+                    </span>
+                    {entry.role === 'assistant' && <ChevronRight size={10} className="text-[#5c633a]/20" />}
+                  </div>
+                  <div className={`
+                    max-w-[90%] px-5 py-3.5 rounded-[22px] shadow-sm text-[15px] md:text-base leading-relaxed
+                    ${entry.role === 'user' 
+                      ? 'bg-[#5c633a] text-white rounded-tr-none' 
+                      : 'bg-[#f5f4e8] text-[#5c633a] rounded-tl-none border border-[#5c633a]/5'}
+                  `}>
                     {entry.text}
                   </div>
                 </div>
               ))}
+
+              {/* Streaming Content */}
               {(currentUserText || currentAssistantText) && (
-                <div className="flex flex-col gap-2 opacity-60">
-                  <span className="text-[9px] font-bold text-[#5c633a]/30 uppercase tracking-[0.2em]">
-                    {currentUserText ? 'Jamjam' : 'Miles'}
-                  </span>
-                  <div className="text-base md:text-lg italic">
+                <div className={`flex flex-col ${currentUserText ? 'items-end' : 'items-start'} animate-pulse`}>
+                  <div className="flex items-center gap-2 mb-1.5 px-1">
+                    <span className="text-[10px] font-bold text-[#5c633a]/30 uppercase tracking-[0.15em]">
+                      {currentUserText ? 'Jamjam' : 'Miles'}
+                    </span>
+                  </div>
+                  <div className={`
+                    max-w-[90%] px-5 py-3.5 rounded-[22px] text-[15px] md:text-base leading-relaxed italic
+                    ${currentUserText 
+                      ? 'bg-[#5c633a]/10 text-[#5c633a] rounded-tr-none' 
+                      : 'bg-[#f5f4e8]/50 text-[#5c633a]/60 rounded-tl-none border border-dashed border-[#5c633a]/10'}
+                  `}>
                     {currentUserText || currentAssistantText}...
                   </div>
                 </div>
@@ -476,12 +499,16 @@ const App: React.FC = () => {
               <div ref={historyEndRef} />
             </div>
 
+            {/* Error Notification */}
             {error && (
-              <div className="mt-6 p-4 bg-[#ff4d4d]/5 rounded-2xl border border-[#ff4d4d]/10 flex items-start gap-3 text-[#ff4d4d]">
+              <div className="m-4 p-4 bg-[#ff4d4d]/5 rounded-2xl border border-[#ff4d4d]/10 flex items-start gap-3 text-[#ff4d4d]">
                 <Info size={18} className="mt-0.5 shrink-0" />
                 <p className="text-xs md:text-sm font-semibold">{error}</p>
               </div>
             )}
+            
+            {/* iOS-style bottom indicator space */}
+            <div className="h-8 md:h-10 bg-[#fdfcf8]" />
           </div>
         </div>
       )}

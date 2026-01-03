@@ -1,7 +1,6 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { GeminiLiveManager } from './services/geminiService';
-import { TranscriptionEntry, ConnectionStatus } from './types';
+import { GeminiLiveManager } from './services/geminiService.ts';
+import { TranscriptionEntry, ConnectionStatus } from './types.ts';
 import { 
   Mic, MicOff, Info, Square, MessageSquare, X, Camera, CameraOff, ScreenShare, MonitorOff, Play, User, Sparkles, Video, VideoOff, Monitor, Zap, Volume2, VolumeX
 } from 'lucide-react';

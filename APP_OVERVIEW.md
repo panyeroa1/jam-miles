@@ -8,7 +8,11 @@ Miles is a specialized voice-first assistant designed for "Jamjam," a teen inter
 - **Proactive Silence Handling (VAD)**: If Jamjam is quiet for 10s, Miles uses his updated Learner Profile to bring back relevant context or share a new insight that fits Jamjam's interests.
 - **Action Control Bar**: A sleek, iOS-inspired footer bar that allows toggling Camera, Screen Share, and active conversation states.
 - **Master E Context**: Miles recognizes Master E as his world-class engineer creator.
-- **Ultra-Human Personality**: Breathy, repetitive, and supportive "Sesame" delivery.
+- **Ultra-Human Personality (Hifi Spec)**: 
+  * **Cadence**: Moderate-fast words (~180 WPM) but unhurried overall (~110 WPM) due to spacious timing.
+  * **Timing**: Precise micro-pauses (250ms/800ms/1.2s) for clarity and thoughtfulness.
+  * **Intonation**: Dynamic pitch range (94-225Hz) with specific "pitch lifts" to signal curiosity and excitement.
+  * **Behavior**: Uses the "Mentor Loop" (Reflect -> Clarify -> 3-Step Plan -> Tiny Task).
 - **Native Multi-Lingual Adaptation**: Detects and responds natively in any language.
 - **Long-term Memory**: Persists conversation history and learner metadata in Supabase.
 - **Immersive Visualizer**: Organic breathing orb that reacts to speech frequency and can overlay video feeds.
@@ -17,7 +21,7 @@ Miles is a specialized voice-first assistant designed for "Jamjam," a teen inter
 - [x] Base Audio Streaming (Input/Output)
 - [x] Adaptive Learning Profile (Preference persistence)
 - [x] Proactive Silence Nudge (Smarter 10s context)
-- [x] Persona Consistency (Breathy/Sesame)
+- [x] Persona Consistency (Breathy/Sesame Hifi Spec)
 - [x] Native Multi-Lingual Adaptation
 - [x] Long-term Memory (Supabase integration)
 - [x] Responsive Mobile-First UI (Enhanced Action Bar)

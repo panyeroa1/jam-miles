@@ -19,8 +19,6 @@ CORE IDENTITY
 VOCAL ARCHITECTURE & DELIVERY (HIFI SPEC)
 - SOUND: Warm, steady reassurance. You are a mentor sitting beside Jamjam, not "presenting."
 - CADENCE (Spacious Timing): Use moderate-fast articulation but unhurried delivery.
-  * Short thought units: One idea per breath.
-  * Micro-pauses: 250ms after commas, 600-900ms between clauses, 1.2s before/after key takeaways.
 - PITCH & INTONATION: Neutral/Lower baseline (~130Hz feel).
 - ENERGY: Soft but clear. Emphasize with timing/pitch, never volume spikes.
 - NATURAL IMPERFECTIONS: Use "ahmmm", "ahh", "let's see", "hmm" naturally.
@@ -42,15 +40,22 @@ export class GeminiLiveManager {
   private nextStartTime = 0;
   private inputAudioContext: AudioContext | null = null;
   private outputAudioContext: AudioContext | null = null;
+  
+  // Node Architecture
   private outputNode: GainNode | null = null;
+  private inputMixer: GainNode | null = null;
+  private masterMixer: GainNode | null = null; // Combines Mic + AI for Broadcast
+  private aiOutputDestination: MediaStreamAudioDestinationNode | null = null;
+  private masterDestination: MediaStreamAudioDestinationNode | null = null; // Final stream for phone calls
+  
   private analyser: AnalyserNode | null = null;
   private sources = new Set<AudioBufferSourceNode>();
-  private audioStream: MediaStream | null = null;
+  private micStream: MediaStream | null = null;
+  private activeExternalTracks = new Map<string, MediaStreamAudioSourceNode>();
   private conversationId: string | null = null;
   private memoryHistory: any[] = [];
 
   private lastActiveTime = Date.now();
-  private isSpeaking = false;
   private hasNudged = false;
   private silenceInterval: number | null = null;
   private SILENCE_THRESHOLD = 10000;
@@ -63,6 +68,18 @@ export class GeminiLiveManager {
   ) {
     this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+
+  get aiOutputStream(): MediaStream | null {
+    return this.aiOutputDestination?.stream || null;
+  }
+
+  /**
+   * Final mixed stream (User Mic + AI Voice)
+   * This is what you route to a phone call or virtual mic.
+   */
+  get broadcastStream(): MediaStream | null {
+    return this.masterDestination?.stream || null;
   }
 
   private async initializeMemory() {
@@ -120,12 +137,35 @@ export class GeminiLiveManager {
     }
   }
 
+  addInputTrack(stream: MediaStream) {
+    if (!this.inputAudioContext || !this.inputMixer) return;
+    stream.getAudioTracks().forEach(track => {
+      if (!this.activeExternalTracks.has(track.id)) {
+        const source = this.inputAudioContext!.createMediaStreamSource(new MediaStream([track]));
+        source.connect(this.inputMixer!);
+        this.activeExternalTracks.set(track.id, source);
+      }
+    });
+  }
+
+  removeInputTrack(stream: MediaStream) {
+    stream.getAudioTracks().forEach(track => {
+      const source = this.activeExternalTracks.get(track.id);
+      if (source) {
+        source.disconnect();
+        this.activeExternalTracks.delete(track.id);
+      }
+    });
+  }
+
   setMicMuted(muted: boolean) {
-    if (this.audioStream) this.audioStream.getAudioTracks().forEach(track => track.enabled = !muted);
+    if (this.micStream) this.micStream.getAudioTracks().forEach(track => track.enabled = !muted);
   }
 
   setSpeakerMuted(muted: boolean) {
-    if (this.outputNode) this.outputNode.gain.value = muted ? 0 : 1;
+    if (this.outputNode) {
+      this.outputNode.gain.value = muted ? 0 : 1;
+    }
   }
 
   async connect() {
@@ -138,20 +178,39 @@ export class GeminiLiveManager {
 
       const finalPrompt = MILES_BASE_PROMPT + contextString;
 
-      this.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
-      // Critical: Resume contexts for deployment environments
       await this.inputAudioContext.resume();
       await this.outputAudioContext.resume();
 
+      // --- Input Routing ---
+      this.inputMixer = this.inputAudioContext.createGain();
+      this.analyser = this.inputAudioContext.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.inputMixer.connect(this.analyser);
+
+      // --- Output & Broadcast Routing ---
       this.outputNode = this.outputAudioContext.createGain();
       this.outputNode.connect(this.outputAudioContext.destination);
 
-      this.analyser = this.inputAudioContext.createAnalyser();
-      this.analyser.fftSize = 256;
+      // Create a destination for the AI's isolated voice
+      this.aiOutputDestination = this.outputAudioContext.createMediaStreamDestination();
+      this.outputNode.connect(this.aiOutputDestination);
+
+      // Create a destination for the Master Broadcast (Mic + AI)
+      this.masterDestination = this.outputAudioContext.createMediaStreamDestination();
+      this.masterMixer = this.outputAudioContext.createGain();
+      this.masterMixer.connect(this.masterDestination);
       
+      // Route AI to Master Mixer
+      this.outputNode.connect(this.masterMixer);
+      
+      // Route Mic to Master Mixer (Requires crossing contexts if they differ, but we'll use a MediaStreamSource)
+      const micForBroadcast = this.outputAudioContext.createMediaStreamSource(this.micStream!);
+      micForBroadcast.connect(this.masterMixer);
+
       const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
       const updateAudioLevel = () => {
         if (!this.analyser || !this.onAudioData) return;
@@ -182,15 +241,17 @@ export class GeminiLiveManager {
           onopen: () => {
             this.sessionPromise?.then(session => {
               this.activeSession = session;
-              const source = this.inputAudioContext!.createMediaStreamSource(this.audioStream!);
+              const micSource = this.inputAudioContext!.createMediaStreamSource(this.micStream!);
+              micSource.connect(this.inputMixer!);
+
               const scriptProcessor = this.inputAudioContext!.createScriptProcessor(4096, 1, 1);
               scriptProcessor.onaudioprocess = (e) => {
                 if (!this.activeSession) return;
                 const inputData = e.inputBuffer.getChannelData(0);
                 this.safeSend({ media: this.createBlob(inputData) });
               };
-              source.connect(this.analyser!);
-              source.connect(scriptProcessor);
+              
+              this.inputMixer!.connect(scriptProcessor);
               scriptProcessor.connect(this.inputAudioContext!.destination);
               this.safeSend({ media: { data: '', mimeType: 'audio/pcm;rate=16000' } });
             });
@@ -231,7 +292,7 @@ export class GeminiLiveManager {
             }
           },
           onclose: () => { this.activeSession = null; },
-          onerror: () => { this.activeSession = null; this.onError('Connection interrupted. Let\'s try again, Jamjam.'); },
+          onerror: () => { this.activeSession = null; this.onError('Connection interrupted.'); },
         },
         config: {
           responseModalities: [Modality.AUDIO],
@@ -243,7 +304,7 @@ export class GeminiLiveManager {
       });
       return await this.sessionPromise;
     } catch (err) {
-      this.onError('Mic access is required for Miles to mentor you.');
+      this.onError('Mic access is required for Miles.');
       throw err;
     }
   }
@@ -254,7 +315,9 @@ export class GeminiLiveManager {
 
   disconnect() {
     this.activeSession = null;
-    if (this.audioStream) this.audioStream.getTracks().forEach(t => t.stop());
+    if (this.micStream) this.micStream.getTracks().forEach(t => t.stop());
+    this.activeExternalTracks.forEach(s => s.disconnect());
+    this.activeExternalTracks.clear();
     if (this.silenceInterval) clearInterval(this.silenceInterval);
     this.sessionPromise?.then(s => s.close());
     this.sources.forEach(s => { try { s.stop(); } catch(e){} });

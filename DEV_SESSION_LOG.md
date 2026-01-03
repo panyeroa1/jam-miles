@@ -1,35 +1,32 @@
 
 # DEV SESSION LOG
 
-## Session ID: 20240520-100000
-... (Previous entries preserved)
-
-## Session ID: 20250523-163000
-**Start Timestamp**: 2025-05-23 16:30:00
+## Session ID: 20250523-184500
+**Start Timestamp**: 2025-05-23 18:45:00
 
 ### Objective(s)
-1. Fix "WebSocket is already in CLOSING or CLOSED state" spam in console.
-2. Resolve silent audio in Vercel deployment by properly resuming `AudioContext`.
-3. Strengthen the `activeSession` lifecycle to prevent sending data to dead sockets.
+1. Convert the "Info" icon into a "Configuration" hub.
+2. Provide a UI for managing complex audio routing (System Audio mix and Broadcast routing).
+3. Add instructions for phone call integration.
 
 ### Repo Scan
-- `services/geminiService.ts`: `onaudioprocess` uses `.then()` on a promise that might resolve to a stale session or fire after disconnect. `AudioContext` was created but never explicitly `resumed()`.
+- `App.tsx`: Replaced `Info` icon with `Settings` icon and added `showSettings` state + modal.
 
 ### Plan
-1. Introduce `activeSession` member variable to track the live connection.
-2. Implement `safeSend()` helper to check session validity before every `sendRealtimeInput`.
-3. Explicitly call `.resume()` on both input and output audio contexts during `connect()`.
-4. Ensure `activeSession` is set to null in `disconnect`, `onclose`, and `onerror`.
+1. Implement `Settings` modal sliding from the left.
+2. Add toggle for System Audio (aliased to Screen Share).
+3. Add toggle for Phone Call Mode (Master Broadcast).
+4. Add clear instructional text for users trying to integrate Miles with external calling apps.
 
 ### End Timestamp
-**2025-05-23 16:45:00**
+**2025-05-23 19:00:00**
 
 ### Summary of Changes
-- Added `activeSession` tracking.
-- Added `AudioContext.resume()` calls.
-- Wrapped all outbound real-time data in `safeSend()`.
-- Updated system prompt for better stability.
+- The app now has a full configuration panel.
+- Users can toggles "System Audio Mix" and "Master Broadcast" with helpful descriptions.
+- Responsive design: Settings panel slides in cleanly on both mobile and desktop.
 
 ### Verification
-- Audio contexts now resume upon user-triggered connection.
-- WebSocket closure now correctly nullifies the local session reference, stopping error loops.
+- Settings icon triggers the new panel.
+- Toggles correctly reflect state and provide visual feedback.
+- Broadcast routing instructions are clearly legible.

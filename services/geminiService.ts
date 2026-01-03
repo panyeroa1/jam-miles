@@ -179,7 +179,7 @@ export class GeminiLiveManager {
     }
   }
 
-  async connect() {
+  async connect(micDeviceId?: string) {
     try {
       await this.initializeMemory();
       
@@ -189,7 +189,8 @@ export class GeminiLiveManager {
 
       const finalPrompt = MILES_BASE_PROMPT + contextString;
 
-      this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const micConstraints = micDeviceId ? { deviceId: { exact: micDeviceId } } : true;
+      this.micStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints });
       this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       

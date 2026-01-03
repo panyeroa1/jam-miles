@@ -24,7 +24,9 @@ const App: React.FC = () => {
   const [isSystemAudioActive, setIsSystemAudioActive] = useState(false);
   const [isPhoneMode, setIsPhoneMode] = useState(false);
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedOutputDeviceId, setSelectedOutputDeviceId] = useState<string>('default');
+  const [selectedInputDeviceId, setSelectedInputDeviceId] = useState<string>('default');
 
   const managerRef = useRef<GeminiLiveManager | null>(null);
   const visualizerCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -34,11 +36,15 @@ const App: React.FC = () => {
   const frameIntervalRef = useRef<number | null>(null);
   const feedbackAudioCtxRef = useRef<AudioContext | null>(null);
 
-  const fetchOutputDevices = useCallback(async () => {
+  const fetchAudioDevices = useCallback(async () => {
     try {
+      // Prompt for permissions first if not already granted to get labels
+      await navigator.mediaDevices.getUserMedia({ audio: true });
       const devices = await navigator.mediaDevices.enumerateDevices();
       const outputs = devices.filter(d => d.kind === 'audiooutput');
+      const inputs = devices.filter(d => d.kind === 'audioinput');
       setOutputDevices(outputs);
+      setInputDevices(inputs);
     } catch (err) {
       console.error("Error fetching audio devices", err);
     }
@@ -46,9 +52,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (showSettings) {
-      fetchOutputDevices();
+      fetchAudioDevices();
     }
-  }, [showSettings, fetchOutputDevices]);
+  }, [showSettings, fetchAudioDevices]);
 
   const handleOutputDeviceChange = async (deviceId: string) => {
     setSelectedOutputDeviceId(deviceId);
@@ -59,6 +65,12 @@ const App: React.FC = () => {
         console.error("Failed to change output device", err);
       }
     }
+  };
+
+  const handleInputDeviceChange = (deviceId: string) => {
+    setSelectedInputDeviceId(deviceId);
+    // Note: Changing input mid-stream is complex, usually requires re-connection or swapping tracks.
+    // For now, we will use this on next connect.
   };
 
   const playFeedbackSound = (type: 'start' | 'stop') => {
@@ -265,7 +277,8 @@ const App: React.FC = () => {
       setStatus(ConnectionStatus.CONNECTING);
       try {
         const manager = new GeminiLiveManager(handleMessage, (err) => setError(err), (data) => setAudioData(data), handleProfileUpdate);
-        await manager.connect();
+        const micId = selectedInputDeviceId === 'default' ? undefined : selectedInputDeviceId;
+        await manager.connect(micId);
         manager.setMicMuted(isMicMuted);
         manager.setSpeakerMuted(isSpeakerMuted);
         if (selectedOutputDeviceId !== 'default') {
@@ -390,10 +403,29 @@ const App: React.FC = () => {
               
               <section className="space-y-6">
                 <div className="flex items-center gap-3 text-[#5c633a]">
-                   <Headphones size={20} className="opacity-70" />
+                   <Mic size={20} className="opacity-70" />
                    <h3 className="text-xs font-bold uppercase tracking-widest opacity-60">Audio Input (What Miles Hears)</h3>
                 </div>
                 <div className="space-y-4">
+                  <div className="p-5 bg-[#f5f4e8] rounded-2xl border border-[#5c633a]/5 space-y-3">
+                    <p className="font-bold text-[#5c633a]">Microphone Device</p>
+                    <div className="relative group">
+                      <select 
+                        value={selectedInputDeviceId}
+                        onChange={(e) => handleInputDeviceChange(e.target.value)}
+                        className="w-full appearance-none bg-white px-4 py-3 pr-10 rounded-xl border border-[#5c633a]/10 text-sm text-[#5c633a] focus:outline-none focus:ring-2 focus:ring-[#c5d299] transition-all"
+                      >
+                        <option value="default">System Default</option>
+                        {inputDevices.map((device) => (
+                          <option key={device.deviceId} value={device.deviceId}>
+                            {device.label || `Input Device ${device.deviceId.slice(0, 5)}`}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5c633a]/40 pointer-events-none" />
+                    </div>
+                  </div>
+
                   <div className="flex items-center justify-between p-5 bg-[#f5f4e8] rounded-2xl border border-[#5c633a]/5">
                     <div className="space-y-1">
                       <p className="font-bold text-[#5c633a]">System Audio Mix</p>

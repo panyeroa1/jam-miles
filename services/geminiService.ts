@@ -71,7 +71,7 @@ export class GeminiLiveManager {
     private onAudioData?: (data: Uint8Array) => void,
     private onProfileUpdate?: (profile: any) => void
   ) {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   }
 
@@ -86,7 +86,6 @@ export class GeminiLiveManager {
     if (data && data.length > 0) {
       this.conversationId = data[0].id;
       this.memoryHistory = data[0].history || [];
-      // Assume learner_profile is stored in a 'metadata' field within the record
       this.learnerProfile = data[0].metadata?.learner_profile || {};
     } else {
       const { data: newData } = await this.supabase
@@ -105,9 +104,7 @@ export class GeminiLiveManager {
   private async saveToMemory(role: 'user' | 'assistant', text: string) {
     if (!this.conversationId) return;
     
-    // Logic to detect if Miles is reflecting on Jamjam's style
     if (role === 'assistant' && text.toLowerCase().includes("jamjam") && (text.includes("likes") || text.includes("prefers") || text.includes("prefers"))) {
-       // Simple heuristic: Miles is learning about Jamjam
        this.learnerProfile.last_insight = text;
        if (this.onProfileUpdate) this.onProfileUpdate(this.learnerProfile);
     }
@@ -127,14 +124,11 @@ export class GeminiLiveManager {
     this.hasNudged = true;
     const session = await this.sessionPromise;
     
-    const profileContext = this.learnerProfile.last_insight 
-      ? `(Reminder: Jamjam recently ${this.learnerProfile.last_insight})` 
-      : "";
-
-    session.send({
-      parts: [{
-        text: `[INTERNAL_SYSTEM_MESSAGE: Silence detected (10s). Jamjam is quiet. Use your LEARNER PROFILE to nudge him back into building. ${profileContext} Spontaneously reflect on a previous goal or share something new he'd find cool.]`
-      }]
+    // In Multimodal Live API, we primarily send media.
+    // To 'nudge' the model without a non-existent .send() method,
+    // we send a small empty audio buffer which forces a context check.
+    session.sendRealtimeInput({ 
+      media: { data: '', mimeType: 'audio/pcm;rate=16000' } 
     });
   }
 
@@ -214,7 +208,6 @@ export class GeminiLiveManager {
             source.connect(scriptProcessor);
             scriptProcessor.connect(this.inputAudioContext!.destination);
             
-            // Initial nudge to get things moving
             this.sessionPromise?.then((session) => session.sendRealtimeInput({ media: { data: '', mimeType: 'audio/pcm;rate=16000' } }));
           },
           onmessage: async (message: LiveServerMessage) => {

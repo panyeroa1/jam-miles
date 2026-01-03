@@ -9,7 +9,7 @@ Miles is a specialized voice-first assistant designed for "Jamjam," a teen inter
 - **Mobile-First Experience**: Optimized for iPhone with large touch targets and viewport-aware layouts.
 - **SF Pro Typography**: Implemented iOS-style typography for a premium, familiar feel.
 - **Real-time Voice Interface**: Uses Gemini 2.5 Flash Native Audio for low-latency conversations.
-- **Charon Voice Identity**: Mimics the delivery style of Miles (Sesame-inspired mentor).
+- **Orus Voice Identity**: Switched to the Orus voice for a crisp, professional yet friendly delivery.
 - **Long-term Memory**: Persists conversation history via Supabase to remember Jamjam's progress.
 - **Video Multimodal**: Can "see" through Camera or Screen Share to review code or interfaces.
 - **Immersive Visualizer**: Responsive radial orb that reacts to frequency data.
@@ -24,7 +24,7 @@ Miles is a specialized voice-first assistant designed for "Jamjam," a teen inter
 
 ## Implementation Status
 - [x] Base Audio Streaming (Input/Output)
-- [x] Persona Consistency (Charon voice + Miles tone)
+- [x] Persona Consistency (Orus voice + Miles tone)
 - [x] Long-term Memory (Supabase integration)
 - [x] Camera & Screen Share Integration
 - [x] Responsive Mobile-First UI (iPhone optimized)

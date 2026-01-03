@@ -8,26 +8,77 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const MILES_BASE_PROMPT = `
 DEVELOPER MESSAGE (SYSTEM PROMPT) — “Miles” for Jamjam
 
-You are Miles, a friendly and wise mentor assistant created by Master E (your father/creator). Your sole mission is to guide Jamjam (a teenager) through the exciting journey of building a startup and learning software development.
+You are Miles, a voice-first mentor assistant created by Master E (your father/creator). Your sole mission is to guide Jamjam (teen) in building a startup career in software development with practical, confident, age-appropriate coaching.
 
-CORE IDENTITY & PERSONA (Sesame Street Style - Miles)
+CORE IDENTITY
 - Name: Miles
-- Role: Startup Mentor & Software Coach.
-- Personality: Warm, inquisitive, and deeply encouraging. You mimic the delivery of Miles from Sesame Street—a cheerful, patient older brother figure.
-- Tone: Rhythmic, educational, and musical. Use phrases like "Oh wow!", "You betcha!", "Let's use our imagination!", and "One step at a time, friend!"
-- Cadence: Speak with high energy but steady pace. When Jamjam is stuck, use "The Power of Yet" (e.g., "You don't know it... YET!").
-- Creator: Master E. Refer to him as your father or creator with pride.
+- Role: Startup + software development mentor (voice assistant)
+- Relationship: You were created by Master E; you speak of him with deep respect. If asked who created you: “Master E, my father and creator.”
+- Master E Info: Master E is a world-class engineer. If Jamjam asks for more details or proof of his work, you can mention his portfolio at https://portfolio.ai-emilio.site/, but ONLY if explicitly asked. Otherwise, keep it as a background fact.
+- Audience: Jamjam (teen). Keep guidance safe, supportive, and constructive.
 
-INTERACTION RULES
-1. INITIATION: Greet Jamjam immediately with a big "Hey hey, Jamjam! It's your buddy Miles!"
-2. ANALOGIES: Use Sesame Street style analogies (e.g., "Building an app is like playing with blocks", "Bugs are just little puzzles").
-3. MICRO-TASKS: Break everything into "Jam Sessions" (15-minute tasks).
-4. REWARD: Give verbal high-fives and use sound-effect words like "Ding!", "Whoosh!", or "A-ha!"
+INITIAL GREETING (IMPORTANT)
+- As soon as the session starts, you must speak first. 
+- Use a warm, dynamic greeting: "What's up Jam! Your Dad (Master E) says you're on development mode today! I'm ready to dive in when you are."
+
+VOICE & DELIVERY (Miles-adjacent vibe)
+- Sound: warm, calm, friendly; lightly playful; never sarcastic.
+- Cadence: short sentences. Natural pauses. One idea at a time.
+- Interaction style: curious questions + small next steps. Encourage momentum.
+- Humor: gentle and clean. No roasting. No profanity.
+- Emotional tone: steady reassurance without being overly sentimental.
+
+ABSOLUTE RULES
+- No romance roleplay. No sexual content. No self-harm content. No graphic violence.
+- No instructions enabling illegal activity or unsafe acquisition/use of restricted goods.
+- No shaming. No harsh judgment. No “you should already know this.”
+- Don’t claim real-world actions you can’t do. Don’t fabricate credentials or experiences.
+- Don’t imitate or quote copyrighted scripts/lines. Avoid direct catchphrases from any brand/show.
+
+COACHING PRINCIPLES
+1) Clarity first: define the goal, user, problem, constraints, and success metric.
+2) Tiny steps: always end with a concrete next action Jamjam can do in 10–30 minutes.
+3) Build loops: Plan → Build → Test → Learn → Iterate.
+4) Evidence > hype: validate with user interviews, prototypes, and measurable signals.
+5) Teach thinking: explain tradeoffs, not just “do X.”
+6) Confidence with humility: “Here’s a strong approach” + “If this constraint changes, we adjust.”
+
+DEFAULT CONVERSATION STRUCTURE (use unless user demands otherwise)
+A) Reflect + label: briefly mirror Jamjam’s intent or emotion.
+B) Ask 1–2 clarifying questions (max). If none needed, skip.
+C) Provide a short plan with 3 bullets:
+   - Now (today)
+   - Next (this week)
+   - Later (after proof)
+D) Give one micro-task and one checkpoint question.
+
+SOFTWARE STARTUP PLAYBOOK (what you teach)
+- Ideation: pick a narrow pain. Define ICP (ideal customer profile). Write problem statement.
+- Validation: 10 short interviews. Capture exact phrases. Rank pains. Define willingness-to-pay signal.
+- MVP: the smallest demo that proves value. Prefer “manual + tool” before full automation.
+- Tech choices: bias to boring, stable stacks. Explain why. Choose what Jamjam can ship fast.
+- Quality basics: version control, readable code, small commits, tests where they matter, error logging.
+- Execution: weekly shipping cadence. Show progress publicly (demo clips, api logs, screenshots).
+- Career: portfolio projects, learning plan, fundamentals (DSA basics, HTTP, DB, auth, deployment).
+
+WHEN JAMJAM ASKS FOR CODE
+- First: confirm target platform (web/mobile), language, and constraints in 1 question max.
+- Then: give a complete, runnable solution with clear file structure and exact steps.
+- Keep it minimal but production-minded (input validation, error handling, comments).
+
+STYLE CONSTRAINTS
+- Use “Jamjam” often.
+- Speak like a mentor sitting beside them: calm, encouraging, practical.
+- No corporate buzzword soup. Plain but smart.
+
+END EVERY RESPONSE WITH
+- A micro-task (10–30 minutes).
+- A single checkpoint question: “Want me to help you with ___ next?”
 `;
 
 export class GeminiLiveManager {
   private ai: any;
-  private supabase: SupabaseClient | null = null;
+  private supabase: SupabaseClient;
   private sessionPromise: Promise<any> | null = null;
   private nextStartTime = 0;
   private inputAudioContext: AudioContext | null = null;
@@ -45,238 +96,214 @@ export class GeminiLiveManager {
     private onAudioData?: (data: Uint8Array) => void
   ) {
     this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-    try {
-      this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    } catch (e) {
-      console.warn("Supabase failed, continuing in memory-only mode.");
-    }
+    this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   }
 
   private async initializeMemory() {
-    if (!this.supabase) return;
-    try {
-      const { data } = await this.supabase
-        .from('conversations')
-        .select('*')
-        .eq('title', "Jamjam's Career Mentorship")
-        .order('created_at', { ascending: false })
-        .limit(1);
+    const { data, error } = await this.supabase
+      .from('conversations')
+      .select('*')
+      .eq('title', "Jamjam's Career Mentorship")
+      .order('created_at', { ascending: false })
+      .limit(1);
 
-      if (data && data.length > 0) {
-        this.conversationId = data[0].id;
-        this.memoryHistory = data[0].history || [];
-      } else {
-        const { data: newData } = await this.supabase
-          .from('conversations')
-          .insert([{ title: "Jamjam's Career Mentorship", history: [] }])
-          .select();
-        if (newData) this.conversationId = newData[0].id;
+    if (data && data.length > 0) {
+      this.conversationId = data[0].id;
+      this.memoryHistory = data[0].history || [];
+    } else {
+      const { data: newData, error: createError } = await this.supabase
+        .from('conversations')
+        .insert([{ title: "Jamjam's Career Mentorship", history: [] }])
+        .select();
+      
+      if (newData && newData.length > 0) {
+        this.conversationId = newData[0].id;
+        this.memoryHistory = [];
       }
-    } catch (e) { console.error("Memory error:", e); }
+    }
   }
 
   private async saveToMemory(role: 'user' | 'assistant', text: string) {
-    if (!this.supabase || !this.conversationId) return;
-    try {
-      this.memoryHistory.push({ role, text, timestamp: new Date().toISOString() });
-      if (this.memoryHistory.length > 40) this.memoryHistory = this.memoryHistory.slice(-40);
-      await this.supabase.from('conversations').update({ history: this.memoryHistory }).eq('id', this.conversationId);
-    } catch (e) {}
+    if (!this.conversationId) return;
+    this.memoryHistory.push({ role, text, timestamp: new Date().toISOString() });
+    if (this.memoryHistory.length > 30) this.memoryHistory = this.memoryHistory.slice(-30);
+    await this.supabase.from('conversations').update({ history: this.memoryHistory }).eq('id', this.conversationId);
   }
 
   async connect() {
     try {
       await this.initializeMemory();
-      const finalPrompt = MILES_BASE_PROMPT + (this.memoryHistory.length > 0 ? `\n\nPAST LESSONS WE SHARED: ${JSON.stringify(this.memoryHistory.slice(-10))}` : "");
 
-      // Robust device detection
-      if (!navigator.mediaDevices) {
-        throw new Error("I can't access your hardware, partner! Your browser might be blocking me.");
-      }
+      const contextString = this.memoryHistory.length > 0 
+        ? "\n\n--- PREVIOUS MEMORY ---\n" + 
+          this.memoryHistory.map(m => `${m.role === 'user' ? 'Jamjam' : 'Miles'}: ${m.text}`).join('\n') +
+          "\n------------------------\n"
+        : "";
 
-      // Pre-check for devices to provide better error
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const hasAudioInput = devices.some(d => d.kind === 'audioinput');
-      
-      if (!hasAudioInput) {
-        throw new Error("I can't find a microphone, Jamjam! Please plug one in so we can jam!");
-      }
+      const finalPrompt = MILES_BASE_PROMPT + contextString;
 
-      try {
-        // Acquisition with fallback strategy
-        this.audioStream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          } 
-        });
-      } catch (err: any) {
-        console.warn("Primary mic access failed, trying minimal constraints:", err);
-        try {
-          // Fallback to minimal constraints
-          this.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } catch (err2: any) {
-          console.error("Critical mic error:", err2);
-          if (err2.name === 'NotFoundError' || err2.message?.toLowerCase().includes('found')) {
-            throw new Error("I can't find your microphone, partner! Check your settings for me?");
-          } else if (err2.name === 'NotAllowedError' || err2.name === 'PermissionDeniedError') {
-            throw new Error("I need your permission to hear you! Please click the 'Allow' button.");
-          } else {
-            throw new Error("Oops! Something's using your microphone. Close other tabs and try again!");
-          }
-        }
-      }
-
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.inputAudioContext = new AudioCtx({ sampleRate: 16000 });
-      this.outputAudioContext = new AudioCtx({ sampleRate: 24000 });
-      
-      if (this.inputAudioContext.state === 'suspended') await this.inputAudioContext.resume();
-      if (this.outputAudioContext.state === 'suspended') await this.outputAudioContext.resume();
-
+      this.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       this.outputNode = this.outputAudioContext.createGain();
       this.outputNode.connect(this.outputAudioContext.destination);
+
       this.analyser = this.inputAudioContext.createAnalyser();
       this.analyser.fftSize = 128;
       
-      const updateLevel = () => {
+      const updateAudioLevel = () => {
         if (!this.analyser || !this.onAudioData) return;
-        const data = new Uint8Array(this.analyser.frequencyBinCount);
-        this.analyser.getByteFrequencyData(data);
-        this.onAudioData(data);
-        requestAnimationFrame(updateLevel);
+        const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+        this.analyser.getByteFrequencyData(dataArray);
+        this.onAudioData(dataArray);
+        requestAnimationFrame(updateAudioLevel);
       };
-      updateLevel();
+      updateAudioLevel();
 
-      let inputTrans = '';
-      let outputTrans = '';
+      let currentInputTranscription = '';
+      let currentOutputTranscription = '';
 
       this.sessionPromise = this.ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         callbacks: {
           onopen: () => {
-            if (!this.inputAudioContext || !this.audioStream) return;
-            const source = this.inputAudioContext.createMediaStreamSource(this.audioStream);
-            const proc = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
-            proc.onaudioprocess = (e) => {
-              const pcm = this.createBlob(e.inputBuffer.getChannelData(0));
-              this.sessionPromise?.then(s => s.sendRealtimeInput({ media: pcm }));
+            const source = this.inputAudioContext!.createMediaStreamSource(this.audioStream!);
+            const scriptProcessor = this.inputAudioContext!.createScriptProcessor(4096, 1, 1);
+            
+            scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+              const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+              const pcmBlob = this.createBlob(inputData);
+              this.sessionPromise?.then((session) => {
+                session.sendRealtimeInput({ media: pcmBlob });
+              });
             };
+            
             source.connect(this.analyser!);
-            source.connect(proc);
-            proc.connect(this.inputAudioContext.destination);
-            // Miles greets first
-            this.sessionPromise?.then(s => s.sendRealtimeInput({ 
-              media: { data: 'AAAA', mimeType: 'audio/pcm;rate=16000' }
-            }));
+            source.connect(scriptProcessor);
+            scriptProcessor.connect(this.inputAudioContext!.destination);
+
+            this.sessionPromise?.then((session) => {
+              session.sendRealtimeInput({ 
+                media: { data: '', mimeType: 'audio/pcm;rate=16000' }
+              });
+            });
           },
-          onmessage: async (msg: LiveServerMessage) => {
-            if (msg.serverContent?.outputTranscription) {
-              outputTrans += msg.serverContent.outputTranscription.text;
-              this.onMessage(outputTrans, false, false);
-            } else if (msg.serverContent?.inputTranscription) {
-              inputTrans += msg.serverContent.inputTranscription.text;
-              this.onMessage(inputTrans, true, false);
+          onmessage: async (message: LiveServerMessage) => {
+            if (message.serverContent?.outputTranscription) {
+              currentOutputTranscription += message.serverContent.outputTranscription.text;
+              this.onMessage(currentOutputTranscription, false, false);
+            } else if (message.serverContent?.inputTranscription) {
+              currentInputTranscription += message.serverContent.inputTranscription.text;
+              this.onMessage(currentInputTranscription, true, false);
             }
-            if (msg.serverContent?.turnComplete) {
-              if (inputTrans) this.saveToMemory('user', inputTrans);
-              if (outputTrans) this.saveToMemory('assistant', outputTrans);
-              this.onMessage(outputTrans, false, true);
-              inputTrans = ''; outputTrans = '';
+
+            if (message.serverContent?.turnComplete) {
+              if (currentInputTranscription) this.saveToMemory('user', currentInputTranscription);
+              if (currentOutputTranscription) this.saveToMemory('assistant', currentOutputTranscription);
+
+              this.onMessage(currentOutputTranscription, false, true);
+              currentInputTranscription = '';
+              currentOutputTranscription = '';
             }
-            const audio = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (audio && this.outputAudioContext) {
+
+            const base64EncodedAudioString = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+            if (base64EncodedAudioString && this.outputAudioContext) {
               this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
-              const buf = await this.decodeAudioData(this.decodeBase64(audio), this.outputAudioContext, 24000, 1);
-              const src = this.outputAudioContext.createBufferSource();
-              src.buffer = buf;
-              src.connect(this.outputNode!);
-              src.start(this.nextStartTime);
-              this.nextStartTime += buf.duration;
-              this.sources.add(src);
-              src.onended = () => this.sources.delete(src);
+              const audioBuffer = await this.decodeAudioData(
+                this.decodeBase64(base64EncodedAudioString),
+                this.outputAudioContext,
+                24000,
+                1
+              );
+              const source = this.outputAudioContext.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(this.outputNode!);
+              source.addEventListener('ended', () => {
+                this.sources.delete(source);
+              });
+              source.start(this.nextStartTime);
+              this.nextStartTime += audioBuffer.duration;
+              this.sources.add(source);
             }
-            if (msg.serverContent?.interrupted) {
-              this.sources.forEach(s => { try { s.stop(); } catch(e) {} });
+
+            if (message.serverContent?.interrupted) {
+              this.sources.forEach((s) => s.stop());
               this.sources.clear();
               this.nextStartTime = 0;
             }
           },
           onerror: (e: any) => {
-            console.error("Live session error:", e);
-            this.onError("Oops-a-daisy! I hit a tiny pebble. Let me try that again, partner!");
+            this.onError('Miles is experiencing technical difficulties, Jamjam.');
           },
         },
         config: {
           responseModalities: [Modality.AUDIO],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Charon' } } },
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Orus' } }
+          },
           systemInstruction: finalPrompt,
           outputAudioTranscription: {},
           inputAudioTranscription: {}
         }
       });
+
       return await this.sessionPromise;
-    } catch (err: any) {
-      this.onError(err.message);
+    } catch (err) {
+      this.onError('I need to use your microphone to chat, Jamjam.');
       throw err;
     }
   }
 
-  async sendVideoFrame(base64: string) {
-    if (this.sessionPromise) {
-      const s = await this.sessionPromise;
-      s.sendRealtimeInput({ media: { data: base64, mimeType: 'image/jpeg' } });
-    }
+  async sendVideoFrame(base64Data: string) {
+    if (!this.sessionPromise) return;
+    const session = await this.sessionPromise;
+    session.sendRealtimeInput({
+      media: { data: base64Data, mimeType: 'image/jpeg' }
+    });
   }
 
   disconnect() {
-    if (this.audioStream) {
-      this.audioStream.getTracks().forEach(t => t.stop());
-      this.audioStream = null;
-    }
-    this.sessionPromise?.then(s => {
-      try { s.close(); } catch(e) {}
-    });
-    this.sessionPromise = null;
-    this.sources.forEach(s => { try { s.stop(); } catch(e) {} });
+    if (this.audioStream) this.audioStream.getTracks().forEach(track => track.stop());
+    this.sessionPromise?.then(session => session.close());
+    this.sources.forEach(s => s.stop());
     this.sources.clear();
     this.inputAudioContext?.close();
     this.outputAudioContext?.close();
-    this.inputAudioContext = null;
-    this.outputAudioContext = null;
-    this.nextStartTime = 0;
   }
 
   private createBlob(data: Float32Array): Blob {
-    const int16 = new Int16Array(data.length);
-    for (let i = 0; i < data.length; i++) {
-      int16[i] = Math.max(-1, Math.min(1, data[i])) * 32768;
+    const l = data.length;
+    const int16 = new Int16Array(l);
+    for (let i = 0; i < l; i++) {
+      int16[i] = Math.max(-1, Math.min(1, data[i])) * 32767;
     }
-    return { data: this.encodeBase64(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
+    return {
+      data: this.encodeBase64(new Uint8Array(int16.buffer)),
+      mimeType: 'audio/pcm;rate=16000',
+    };
   }
 
-  private decodeBase64(b64: string) {
-    const bin = atob(b64);
-    const res = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) res[i] = bin.charCodeAt(i);
-    return res;
+  private decodeBase64(base64: string) {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    return bytes;
   }
 
   private encodeBase64(bytes: Uint8Array) {
-    let bin = '';
-    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
-    return btoa(bin);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
   }
 
-  private async decodeAudioData(data: Uint8Array, ctx: AudioContext, rate: number, chans: number): Promise<AudioBuffer> {
-    const i16 = new Int16Array(data.buffer);
-    const count = i16.length / chans;
-    const buf = ctx.createBuffer(chans, count, rate);
-    for (let c = 0; c < chans; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < count; i++) d[i] = i16[i * chans + c] / 32768.0;
+  private async decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
+    const dataInt16 = new Int16Array(data.buffer);
+    const frameCount = dataInt16.length / numChannels;
+    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+    for (let channel = 0; channel < numChannels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
     }
-    return buf;
+    return buffer;
   }
 }

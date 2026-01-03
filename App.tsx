@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GeminiLiveManager } from './services/geminiService';
 import { TranscriptionEntry, ConnectionStatus } from './types';
 import { 
-  Mic, Info, Square, MessageSquare, X, Camera, CameraOff, ScreenShare, MonitorOff, Play, Loader2, Sparkles, AlertCircle, RefreshCw, Heart
+  Mic, Info, Square, MessageSquare, X, Camera, CameraOff, ScreenShare, MonitorOff, Play, User
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -17,8 +17,6 @@ const App: React.FC = () => {
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [hasMic, setHasMic] = useState(true);
-  const [hasCam, setHasCam] = useState(true);
 
   const managerRef = useRef<GeminiLiveManager | null>(null);
   const visualizerCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -28,395 +26,465 @@ const App: React.FC = () => {
   const timerIntervalRef = useRef<number | null>(null);
   const frameIntervalRef = useRef<number | null>(null);
 
-  const checkHardware = useCallback(async () => {
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        setHasMic(false);
-        setHasCam(false);
-        setError("Your browser doesn't support device detection, Jamjam!");
-        return;
-      }
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const mics = devices.filter(d => d.kind === 'audioinput');
-      const cams = devices.filter(d => d.kind === 'videoinput');
-      
-      const foundMic = mics.length > 0;
-      const foundCam = cams.length > 0;
-      
-      setHasMic(foundMic);
-      setHasCam(foundCam);
-      
-      if (!foundMic) {
-        setError("I can't find a microphone, Jamjam! Please plug one in so we can chat.");
-      } else {
-        // Clear only if it's a mic related error
-        setError(prev => (prev && prev.includes("microphone")) ? null : prev);
-      }
-    } catch (e) {
-      console.warn("Hardware check failed", e);
-    }
-  }, []);
-
-  // Check hardware on mount
-  useEffect(() => {
-    checkHardware();
-  }, [checkHardware]);
-
+  // Connection Audio Feedback
   const playConnectSound = useCallback(() => {
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(523.25, audioCtx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(659.25, audioCtx.currentTime + 0.1);
-      gain.gain.setValueAtTime(0, audioCtx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.05);
-      gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.4);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.4);
-    } catch (e) {}
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); 
+      oscillator.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.1);
+      
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + 0.05);
+      gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + 0.3);
+    } catch (e) {
+      console.warn("Audio feedback failed", e);
+    }
   }, []);
 
+  // Timer Logic
   useEffect(() => {
     if (status === ConnectionStatus.CONNECTED) {
       playConnectSound();
-      timerIntervalRef.current = window.setInterval(() => setSecondsElapsed(prev => prev + 1), 1000);
+      timerIntervalRef.current = window.setInterval(() => {
+        setSecondsElapsed(prev => prev + 1);
+      }, 1000);
     } else {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
       if (status === ConnectionStatus.IDLE) setSecondsElapsed(0);
     }
-    return () => { if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); };
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
   }, [status, playConnectSound]);
 
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+  const formatTime = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Canvas Visualizer Drawing
   useEffect(() => {
     const canvas = visualizerCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    let frame: number;
+
+    let animationFrameId: number;
+
     const render = () => {
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width * dpr;
       canvas.height = rect.height * dpr;
       ctx.scale(dpr, dpr);
-      const cx = rect.width / 2;
-      const cy = rect.height / 2;
-      const isMob = rect.width < 640;
-      const baseR = isMob ? 70 : 100;
+
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      
+      const isMobile = rect.width < 640;
+      const baseRadius = isMobile ? 65 : 85; 
+      
       ctx.clearRect(0, 0, rect.width, rect.height);
-      const breathe = Math.sin(Date.now() / 1200) * 5;
-      let avg = 0;
+
+      const breathing = Math.sin(Date.now() / 1500) * 4;
+      
+      let averageLevel = 0;
       if (audioData.length > 0) {
         let sum = 0;
         for (let i = 0; i < audioData.length; i++) sum += audioData[i];
-        avg = sum / audioData.length;
+        averageLevel = sum / audioData.length;
       }
-      const pulse = (avg / 255) * (isMob ? 50 : 80);
-      for (let i = 1; i <= (isMob ? 4 : 6); i++) {
-        const rr = baseR + (i * (isMob ? 22 : 32)) + (breathe * 0.8) + (pulse * 0.3);
+      const activePulse = (averageLevel / 255) * (isMobile ? 40 : 60);
+      
+      const ringCount = isMobile ? 6 : 8;
+      for (let i = 1; i <= ringCount; i++) {
+        const ringRadius = baseRadius + (i * (isMobile ? 18 : 24)) + (breathing * 0.5) + (activePulse * 0.2);
         ctx.beginPath();
-        ctx.arc(cx, cy, rr, 0, Math.PI * 2);
-        ctx.lineWidth = 0.8 + (i * 0.15);
-        ctx.strokeStyle = error ? `rgba(255, 77, 77, ${0.05 - (i * 0.005)})` : `rgba(92, 99, 58, ${0.06 - (i * 0.008)})`;
+        ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
+        ctx.lineWidth = 0.5 + (i * 0.1);
+        ctx.strokeStyle = `rgba(92, 99, 58, ${0.04 - (i * 0.003)})`;
         ctx.stroke();
       }
+
       if (audioData.length > 0 && status === ConnectionStatus.CONNECTED) {
-        const step = (Math.PI * 2) / audioData.length;
-        for (let i = 0; i < audioData.length; i++) {
-          const val = audioData[i];
-          const bh = (val / 255) * (isMob ? 35 : 55);
-          const a = i * step;
-          const ix = cx + Math.cos(a) * (baseR + pulse + 8);
-          const iy = cy + Math.sin(a) * (baseR + pulse + 8);
-          const ox = cx + Math.cos(a) * (baseR + pulse + 8 + bh);
-          const oy = cy + Math.sin(a) * (baseR + pulse + 8 + bh);
+        const barCount = audioData.length;
+        const angleStep = (Math.PI * 2) / barCount;
+        
+        for (let i = 0; i < barCount; i++) {
+          const value = audioData[i];
+          const barHeight = (value / 255) * (isMobile ? 30 : 40);
+          const angle = i * angleStep;
+          
+          const innerX = centerX + Math.cos(angle) * (baseRadius + activePulse + 5);
+          const innerY = centerY + Math.sin(angle) * (baseRadius + activePulse + 5);
+          const outerX = centerX + Math.cos(angle) * (baseRadius + activePulse + 5 + barHeight);
+          const outerY = centerY + Math.sin(angle) * (baseRadius + activePulse + 5 + barHeight);
+          
           ctx.beginPath();
-          ctx.moveTo(ix, iy);
-          ctx.lineTo(ox, oy);
-          ctx.lineWidth = isMob ? 3 : 4;
+          ctx.moveTo(innerX, innerY);
+          ctx.lineTo(outerX, outerY);
+          ctx.lineWidth = isMobile ? 2 : 3;
           ctx.lineCap = 'round';
-          ctx.strokeStyle = `rgba(197, 210, 153, ${0.4 + (val / 255) * 0.6})`;
+          ctx.strokeStyle = `rgba(197, 210, 153, ${0.3 + (value / 255) * 0.7})`;
           ctx.stroke();
         }
       }
-      const cr = baseR + (pulse * 0.6);
-      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
-      grad.addColorStop(0, error ? '#ffc4c4' : '#d8e1bc');
-      grad.addColorStop(0.7, error ? '#ff4d4d' : '#c5d299');
-      grad.addColorStop(1, error ? '#d43f3f' : '#b4c386');
+
+      const coreRadius = baseRadius + (activePulse * 0.5);
+      
       ctx.beginPath();
-      ctx.arc(cx, cy, cr, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
+      ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
+      ctx.fillStyle = '#c5d299';
       ctx.fill();
+
       if (isCameraOn || isScreenSharing) {
-        ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, cr, 0, Math.PI * 2); ctx.clip();
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
+        ctx.clip();
+        
         const v = videoRef.current;
         if (v && v.readyState >= v.HAVE_ENOUGH_DATA) {
-          const r = v.videoWidth / v.videoHeight;
-          let dw, dh;
-          if (r > 1) { dh = cr * 2; dw = dh * r; } else { dw = cr * 2; dh = dw / r; }
-          ctx.drawImage(v, cx - dw / 2, cy - dh / 2, dw, dh);
+          const vRatio = v.videoWidth / v.videoHeight;
+          let drawWidth, drawHeight;
+          if (vRatio > 1) { 
+            drawHeight = coreRadius * 2;
+            drawWidth = drawHeight * vRatio;
+          } else { 
+            drawWidth = coreRadius * 2;
+            drawHeight = drawWidth / vRatio;
+          }
+          
+          ctx.drawImage(v, centerX - drawWidth / 2, centerY - drawHeight / 2, drawWidth, drawHeight);
+          ctx.fillStyle = 'rgba(0,0,0,0.05)';
+          ctx.fill();
+        } else {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+          ctx.fill();
+          ctx.font = isMobile ? '12px SF Pro' : '14px SF Pro';
+          ctx.fillStyle = '#5c633a';
+          ctx.textAlign = 'center';
+          ctx.fillText("Starting Feed...", centerX, centerY);
         }
         ctx.restore();
       }
-      ctx.beginPath(); ctx.arc(cx, cy, cr, 0, Math.PI * 2); ctx.lineWidth = (isMob ? 4 : 6) + (pulse * 0.15); ctx.strokeStyle = `rgba(255, 255, 255, 0.4)`; ctx.stroke();
-      frame = requestAnimationFrame(render);
-    };
-    render();
-    return () => cancelAnimationFrame(frame);
-  }, [audioData, isCameraOn, isScreenSharing, status, error]);
 
-  const handleMessage = useCallback((text: string, isUser: boolean, complete: boolean) => {
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
+      ctx.lineWidth = (isMobile ? 3 : 4) + (activePulse * 0.1);
+      ctx.strokeStyle = `rgba(197, 210, 153, 0.6)`;
+      ctx.stroke();
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [audioData, isCameraOn, isScreenSharing, status]);
+
+  const handleMessage = useCallback((text: string, isUser: boolean, isTurnComplete: boolean) => {
     if (isUser) {
       setCurrentUserText(text);
-      if (complete) { setHistory(p => [...p, { role: 'user', text, timestamp: Date.now() }]); setCurrentUserText(''); }
+      if (isTurnComplete) {
+        setHistory(prev => [...prev, { role: 'user', text, timestamp: Date.now() }]);
+        setCurrentUserText('');
+      }
     } else {
       setCurrentAssistantText(text);
-      if (complete) { setHistory(p => [...p, { role: 'assistant', text, timestamp: Date.now() }]); setCurrentAssistantText(''); }
+      if (isTurnComplete) {
+        setHistory(prev => [...prev, { role: 'assistant', text, timestamp: Date.now() }]);
+        setCurrentAssistantText('');
+      }
     }
   }, []);
 
-  useEffect(() => { historyEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [history, currentAssistantText, currentUserText]);
+  useEffect(() => {
+    if (historyEndRef.current) {
+      historyEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [history, currentAssistantText, currentUserText]);
+
+  const handleError = useCallback((err: string) => {
+    setError(err);
+    setStatus(ConnectionStatus.ERROR);
+  }, []);
 
   const stopVideo = () => {
-    if (videoRef.current?.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-    if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
-    setIsCameraOn(false); setIsScreenSharing(false);
+    if (videoRef.current?.srcObject) {
+      (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+      videoRef.current.srcObject = null;
+    }
+    if (frameIntervalRef.current) {
+      window.clearInterval(frameIntervalRef.current);
+      frameIntervalRef.current = null;
+    }
+    setIsCameraOn(false);
+    setIsScreenSharing(false);
   };
 
-  const startStream = () => {
+  const startFrameStreaming = () => {
+    if (frameIntervalRef.current) return;
     frameIntervalRef.current = window.setInterval(() => {
       if (videoRef.current && processingCanvasRef.current && managerRef.current && status === ConnectionStatus.CONNECTED) {
-        const v = videoRef.current; const c = processingCanvasRef.current; const ctx = c.getContext('2d');
-        if (ctx && v.videoWidth > 0) {
-          c.width = 640; c.height = (v.videoHeight / v.videoWidth) * c.width;
-          ctx.drawImage(v, 0, 0, c.width, c.height);
-          c.toBlob(b => {
-            if (b) {
-              const r = new FileReader();
-              r.onloadend = () => managerRef.current?.sendVideoFrame((r.result as string).split(',')[1]);
-              r.readAsDataURL(b);
+        const video = videoRef.current;
+        const canvas = processingCanvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (ctx && video.videoWidth > 0) {
+          canvas.width = 640;
+          canvas.height = (video.videoHeight / video.videoWidth) * canvas.width;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64data = (reader.result as string).split(',')[1];
+                managerRef.current?.sendVideoFrame(base64data);
+              };
+              reader.readAsDataURL(blob);
             }
-          }, 'image/jpeg', 0.6);
+          }, 'image/jpeg', 0.65);
         }
       }
     }, 1000);
   };
 
   const toggleCamera = async () => {
-    if (isCameraOn) stopVideo();
-    else {
+    if (isCameraOn) {
+      stopVideo();
+    } else {
       try {
-        let stream;
-        try { 
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } }); 
-        } catch { 
-          stream = await navigator.mediaDevices.getUserMedia({ video: true }); 
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          setIsCameraOn(true);
+          setIsScreenSharing(false);
+          startFrameStreaming();
         }
-        if (videoRef.current) { 
-          videoRef.current.srcObject = stream; 
-          setIsCameraOn(true); 
-          setIsScreenSharing(false); 
-          startStream(); 
-        }
-      } catch (err: any) {
-        setError("I couldn't find a camera, Jamjam! Try screen sharing maybe?");
+      } catch (err) {
+        setError("I couldn't access your camera, Jamjam.");
       }
     }
   };
 
   const toggleScreen = async () => {
-    if (isScreenSharing) stopVideo();
-    else {
+    if (isScreenSharing) {
+      stopVideo();
+    } else {
       try {
-        const s = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        if (videoRef.current) { 
-          videoRef.current.srcObject = s; 
-          setIsScreenSharing(true); 
-          setIsCameraOn(false); 
-          startStream(); 
-          s.getVideoTracks()[0].onended = stopVideo; 
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          setIsScreenSharing(true);
+          setIsCameraOn(false);
+          startFrameStreaming();
+          stream.getVideoTracks()[0].onended = () => stopVideo();
         }
-      } catch (e) { 
-        console.warn(e); 
+      } catch (err) {
+        setError("Screen share cancelled.");
       }
     }
   };
 
-  const toggleConn = async () => {
+  const toggleConnection = async () => {
     if (status === ConnectionStatus.CONNECTED || status === ConnectionStatus.CONNECTING) {
-      managerRef.current?.disconnect(); 
-      stopVideo(); 
-      setStatus(ConnectionStatus.IDLE); 
-      setAudioData(new Uint8Array(0)); 
-      setSecondsElapsed(0); 
-      setCurrentAssistantText(''); 
-      setCurrentUserText('');
+      managerRef.current?.disconnect();
+      stopVideo();
+      setStatus(ConnectionStatus.IDLE);
+      setAudioData(new Uint8Array(0));
     } else {
-      setError(null); 
+      setError(null);
       setStatus(ConnectionStatus.CONNECTING);
       try {
-        const m = new GeminiLiveManager(handleMessage, (err) => {
-          setError(err);
-          setStatus(ConnectionStatus.ERROR);
-        }, setAudioData);
-        await m.connect(); 
-        managerRef.current = m; 
+        const manager = new GeminiLiveManager(handleMessage, handleError, (data) => setAudioData(data));
+        await manager.connect();
+        managerRef.current = manager;
         setStatus(ConnectionStatus.CONNECTED);
-      } catch (e: any) { 
-        setStatus(ConnectionStatus.ERROR); 
+      } catch (err) {
+        setStatus(ConnectionStatus.ERROR);
       }
     }
+  };
+
+  const stopSession = () => {
+    if (managerRef.current) {
+      managerRef.current.disconnect();
+    }
+    stopVideo();
+    setStatus(ConnectionStatus.IDLE);
+    setSecondsElapsed(0);
+    setCurrentAssistantText('');
+    setCurrentUserText('');
+    setAudioData(new Uint8Array(0));
   };
 
   return (
-    <div className="h-screen-safe w-full flex flex-col overflow-hidden relative bg-[#fdfcf8] select-none text-[#5c633a]">
-      {/* Background Decor */}
-      <div className="absolute top-4 left-4 z-10 opacity-20 pointer-events-none">
-        <Heart className="text-[#c5d299]" size={120} strokeWidth={0.5} />
-      </div>
-
-      <header className="relative z-20 flex items-center justify-between px-6 py-6 md:px-12 md:py-8">
-        <div className="flex-1"><div className="p-2 bg-white/50 w-fit rounded-xl border border-[#5c633a]/5 shadow-sm"><Sparkles size={24} className="text-[#c5d299]" /></div></div>
-        <div className="flex flex-col items-center">
-          <div className="flex items-center gap-3">
-            {status === ConnectionStatus.CONNECTED && <div className="flex gap-1 items-center bg-[#c5d299]/10 px-3 py-1 rounded-full border border-[#c5d299]/20"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /><span className="text-[10px] font-bold uppercase tracking-widest">Live</span></div>}
-            <h1 className="text-2xl md:text-3xl miles-font tracking-tight">Miles <span className="text-[#c5d299]">{formatTime(secondsElapsed)}</span></h1>
-          </div>
-          <p className="text-[10px] font-bold tracking-[0.3em] uppercase opacity-40 mt-1">Created by Master E</p>
+    <div className="h-screen-safe w-full flex flex-col overflow-hidden relative bg-[#fdfcf8] select-none">
+      {/* Header */}
+      <header className="relative z-20 flex items-center justify-between px-6 py-8 md:px-10 md:py-10">
+        <div className="flex-1 flex justify-start">
+          <button className="text-[#5c633a] hover:opacity-70 transition-opacity active:scale-95">
+            <Info size={28} className="md:w-8 md:h-8" />
+          </button>
         </div>
-        <div className="flex-1 flex justify-end">
-          <button onClick={() => setShowHistory(!showHistory)} className="p-3 bg-white/50 rounded-xl border border-[#5c633a]/5 shadow-sm hover:bg-white relative transition-colors active:scale-95">
-            <MessageSquare size={24} />
-            {history.length > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-[#ff4d4d] rounded-full border-2 border-[#fdfcf8]" />}
+
+        <div className="flex flex-col items-center">
+          <div className="flex items-center gap-2">
+            {status === ConnectionStatus.CONNECTED && (
+              <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse" />
+            )}
+            <h1 className="text-xl md:text-2xl font-bold text-[#5c633a] flex items-center gap-2 tabular-nums">
+              Miles {formatTime(secondsElapsed)}
+            </h1>
+          </div>
+          <p className="text-[10px] md:text-sm text-[#5c633a]/60 font-medium tracking-wide uppercase mt-0.5">
+            by master e
+          </p>
+        </div>
+
+        <div className="flex-1 flex justify-end gap-4 md:gap-6 items-center">
+           <button 
+            onClick={() => setShowHistory(!showHistory)}
+            className="text-[#5c633a] hover:opacity-70 transition-opacity relative active:scale-95"
+           >
+            <MessageSquare size={28} className="md:w-8 md:h-8" />
+            {history.length > 0 && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 md:w-2.5 md:h-2.5 bg-[#ff4d4d] rounded-full border-2 border-[#fdfcf8]"></span>}
+          </button>
+          
+          <button className="text-[#5c633a] hover:opacity-70 transition-opacity active:scale-95">
+            <User size={28} className="md:w-8 md:h-8" />
           </button>
         </div>
       </header>
 
-      <main className="flex-1 relative flex flex-col items-center justify-center py-4 px-6">
-        <div className="relative group cursor-pointer" onClick={toggleConn}>
-          <canvas ref={visualizerCanvasRef} className="w-[85vw] h-[85vw] max-h-[500px] max-w-[500px]" />
-          
-          {status === ConnectionStatus.IDLE && !error && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none opacity-40 group-hover:opacity-60 transition-all">
-              <Play size={80} className="text-white drop-shadow-md" fill="currentColor" />
-              <span className="mt-4 miles-font text-white text-xl">Let's Jam!</span>
-            </div>
-          )}
-
-          {error && status !== ConnectionStatus.CONNECTING && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-[#ff4d4d] gap-4">
-              <AlertCircle size={80} className="animate-bounce" />
-              <button 
-                onClick={(e) => { e.stopPropagation(); checkHardware(); }}
-                className="bg-white/90 backdrop-blur-sm px-6 py-2 rounded-full border border-[#ff4d4d]/20 text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-white transition-all shadow-md active:scale-95"
-              >
-                <RefreshCw size={14} /> Refresh Hardware
-              </button>
-            </div>
-          )}
-        </div>
+      {/* Main Experience (Visualizer Stage) */}
+      <main className="flex-1 relative flex flex-col items-center justify-center">
+        <canvas 
+          ref={visualizerCanvasRef} 
+          className="w-full h-full max-h-[80vw] max-w-[80vw] md:max-h-[800px] md:max-w-[800px]"
+        />
         <video ref={videoRef} autoPlay playsInline muted className="hidden" />
         <canvas ref={processingCanvasRef} className="hidden" />
       </main>
 
-      <footer className="relative z-20 pb-12 flex flex-col items-center gap-8">
-        {error && (
-          <div className="absolute bottom-[100%] mb-4 p-4 bg-[#ff4d4d]/10 rounded-2xl border border-[#ff4d4d]/20 flex items-start gap-3 text-[#ff4d4d] max-w-[90%] shadow-lg animate-in slide-in-from-bottom-2 duration-300">
-            <Info size={18} className="shrink-0 mt-0.5" />
-            <div className="flex flex-col gap-1">
-              <p className="text-sm font-bold leading-snug">{error}</p>
-              <p className="text-[10px] opacity-60">Don't worry, Jamjam! Miles is here to help us try again!</p>
-            </div>
-          </div>
-        )}
-
-        <div className="bg-white/80 backdrop-blur-xl px-4 py-3 rounded-[2.5rem] flex items-center gap-4 shadow-[0_20px_50px_rgba(92,99,58,0.1)] border border-white">
-          <button onClick={toggleCamera} disabled={!hasCam || status !== ConnectionStatus.CONNECTED} className={`p-3 rounded-full transition-all active:scale-90 ${isCameraOn ? 'bg-[#c5d299] text-white shadow-md' : 'text-[#5c633a]/60 hover:bg-[#5c633a]/5'} disabled:opacity-20`}><Camera size={24} /></button>
-          <button onClick={toggleScreen} disabled={status !== ConnectionStatus.CONNECTED} className={`p-3 rounded-full transition-all active:scale-90 ${isScreenSharing ? 'bg-[#c5d299] text-white shadow-md' : 'text-[#5c633a]/60 hover:bg-[#5c633a]/5'} disabled:opacity-20`}><ScreenShare size={24} /></button>
-          
-          <button onClick={toggleConn} className={`p-5 md:p-6 rounded-full shadow-lg transition-all active:scale-95 ${status === ConnectionStatus.CONNECTED || status === ConnectionStatus.CONNECTING ? 'bg-[#ff6b6b] text-white hover:bg-[#ff5252]' : 'bg-[#5c633a] text-white hover:bg-[#4a502f]'}`}>
-            {status === ConnectionStatus.CONNECTING ? <Loader2 size={32} className="animate-spin" /> : status === ConnectionStatus.CONNECTED ? <Square size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-1" />}
+      {/* Control Pill */}
+      <footer className="relative z-20 pb-10 md:pb-12 flex flex-col items-center gap-6 md:gap-10">
+        <div className="bg-[#f5f4e8]/80 backdrop-blur-md px-6 py-4 md:px-10 md:py-5 rounded-full flex items-center gap-6 md:gap-10 shadow-lg border border-[#5c633a]/5">
+          <button 
+            onClick={toggleCamera}
+            disabled={status !== ConnectionStatus.CONNECTED}
+            className={`transition-all transform active:scale-90 p-2 rounded-full ${
+              isCameraOn ? 'text-[#5c633a] bg-[#c5d299]/30' : status === ConnectionStatus.CONNECTED ? 'text-[#5c633a]' : 'text-[#5c633a]/30'
+            }`}
+            title="Camera"
+          >
+            {isCameraOn ? <Camera size={24} className="md:w-8 md:h-8" /> : <CameraOff size={24} className="md:w-8 md:h-8" />}
           </button>
 
-          <div className={`p-3 rounded-full transition-colors ${status === ConnectionStatus.CONNECTED ? 'bg-[#c5d299]/20 text-[#c5d299] animate-pulse' : 'text-[#5c633a]/30'}`}>
-            <Mic size={24} />
-          </div>
-          <button className="text-[#5c633a]/60 p-3 hover:bg-[#5c633a]/5 rounded-full transition-colors"><Info size={24} /></button>
+          <button 
+            onClick={toggleScreen}
+            disabled={status !== ConnectionStatus.CONNECTED}
+            className={`transition-all transform active:scale-90 p-2 rounded-full ${
+              isScreenSharing ? 'text-[#5c633a] bg-[#c5d299]/30' : status === ConnectionStatus.CONNECTED ? 'text-[#5c633a]' : 'text-[#5c633a]/30'
+            }`}
+            title="Screen"
+          >
+            {isScreenSharing ? <ScreenShare size={24} className="md:w-8 md:h-8" /> : <MonitorOff size={24} className="md:w-8 md:h-8" />}
+          </button>
+
+          <button 
+            className={`transition-all transform active:scale-90 p-2 rounded-full text-[#5c633a]/50`}
+            title="Mic"
+          >
+            <Mic size={24} className="md:w-8 md:h-8" />
+          </button>
+
+          <button 
+            onClick={toggleConnection}
+            className={`transition-all transform active:scale-90 p-2 rounded-full ${
+              status === ConnectionStatus.CONNECTED || status === ConnectionStatus.CONNECTING 
+                ? 'text-[#ff4d4d]' 
+                : 'text-[#5c633a]'
+            }`}
+            title={status === ConnectionStatus.CONNECTED ? "Stop" : "Play"}
+          >
+            {status === ConnectionStatus.CONNECTED || status === ConnectionStatus.CONNECTING ? (
+              <Square size={24} className="md:w-8 md:h-8" fill="currentColor" stroke="none" />
+            ) : (
+              <Play size={24} className="md:w-8 md:h-8" fill="currentColor" stroke="none" />
+            )}
+          </button>
         </div>
 
-        <div className="min-h-[4rem] px-10 text-center max-w-[90%] md:max-w-[600px]">
-          <p className="text-base md:text-lg font-medium opacity-80 leading-relaxed transition-all duration-300">
-            {status === ConnectionStatus.CONNECTED 
-              ? (currentAssistantText || currentUserText || "I'm listening with all my ears, Jamjam!") 
-              : status === ConnectionStatus.CONNECTING 
-              ? "Waking up Miles... He's getting his thinking cap on!" 
-              : error 
-              ? "Oh-oh! Let's try fixing our connection, partner." 
-              : "Ready to build something amazing today, Jamjam?"}
-          </p>
+        <div className="text-sm md:text-base text-[#5c633a]/50 font-medium tracking-tight h-12 px-8 text-center max-w-[80%] line-clamp-2 leading-tight">
+          {status === ConnectionStatus.CONNECTED 
+            ? (currentAssistantText || currentUserText || "Miles is listening...")
+            : status === ConnectionStatus.CONNECTING 
+            ? "Connecting..." 
+            : "Miles is ready to help"}
         </div>
       </footer>
 
+      {/* Modern History Side Panel / Full Screen on Mobile */}
       {showHistory && (
-        <div className="absolute inset-0 bg-[#5c633a]/10 backdrop-blur-md z-30 flex justify-end animate-in fade-in duration-300">
-          <div className="h-full w-full md:w-[480px] bg-[#fdfcf8] border-l border-[#5c633a]/5 shadow-2xl flex flex-col p-8 md:p-12 animate-in slide-in-from-right duration-500">
-            <div className="flex justify-between items-center mb-12">
-              <div>
-                <h2 className="text-3xl md:text-4xl miles-font text-[#5c633a]">Mentorship Log</h2>
-                <p className="text-[10px] font-bold uppercase tracking-widest opacity-40 mt-2">Jamjam's Career Path</p>
-              </div>
-              <button onClick={() => setShowHistory(false)} className="p-3 hover:bg-[#5c633a]/5 rounded-2xl transition-all active:scale-90 border border-transparent hover:border-[#5c633a]/5">
-                <X size={28} />
+        <div className="absolute inset-0 bg-black/10 backdrop-blur-[2px] z-30 flex justify-end">
+          <div className="h-full w-full md:w-[450px] bg-[#fdfcf8] border-l border-[#5c633a]/5 shadow-2xl flex flex-col p-6 md:p-10 animate-in slide-in-from-right duration-300">
+            <div className="flex items-center justify-between mb-8 md:mb-10">
+              <h2 className="text-xl md:text-2xl font-bold text-[#5c633a]">Mentorship Log</h2>
+              <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-[#5c633a]/5 rounded-full transition-colors active:scale-90">
+                <X size={24} className="md:w-7 md:h-7" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto space-y-10 pr-4 custom-scrollbar">
+            
+            <div className="flex-1 overflow-y-auto space-y-8 pr-2 scroll-smooth">
               {history.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center opacity-10 gap-6">
-                  <MessageSquare size={80} strokeWidth={1} />
-                  <p className="text-sm font-bold tracking-[0.3em] uppercase">The pages are waiting for us!</p>
+                <div className="h-full flex flex-col items-center justify-center opacity-20 gap-4">
+                  <MessageSquare size={48} />
+                  <p className="text-sm font-semibold tracking-wide uppercase">No history yet</p>
                 </div>
               )}
-              {history.map((e, i) => (
-                <div key={i} className="flex flex-col gap-3 group">
-                  <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${e.role === 'user' ? 'text-[#c5d299]' : 'text-[#5c633a]/30'}`}>
-                    {e.role === 'user' ? 'Jamjam' : 'Miles'}
+              {history.map((entry, i) => (
+                <div key={i} className="flex flex-col gap-2">
+                  <span className="text-[9px] md:text-[10px] font-bold text-[#5c633a]/30 uppercase tracking-[0.2em]">
+                    {entry.role === 'user' ? 'Jamjam' : 'Miles'}
                   </span>
-                  <div className={`text-lg md:text-xl leading-snug md:leading-relaxed ${e.role === 'user' ? 'text-[#5c633a]' : 'text-[#5c633a]/60'}`}>
-                    {e.text}
+                  <div className={`text-base md:text-lg leading-snug md:leading-relaxed ${entry.role === 'user' ? 'text-[#5c633a] font-medium' : 'text-[#5c633a]/70'}`}>
+                    {entry.text}
                   </div>
                 </div>
               ))}
               {(currentUserText || currentAssistantText) && (
-                <div className="flex flex-col gap-3 animate-pulse opacity-40">
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">
+                <div className="flex flex-col gap-2 opacity-60">
+                  <span className="text-[9px] font-bold text-[#5c633a]/30 uppercase tracking-[0.2em]">
                     {currentUserText ? 'Jamjam' : 'Miles'}
                   </span>
-                  <div className="text-lg md:text-xl italic">
+                  <div className="text-base md:text-lg italic">
                     {currentUserText || currentAssistantText}...
                   </div>
                 </div>
               )}
               <div ref={historyEndRef} />
             </div>
+
+            {error && (
+              <div className="mt-6 p-4 bg-[#ff4d4d]/5 rounded-2xl border border-[#ff4d4d]/10 flex items-start gap-3 text-[#ff4d4d]">
+                <Info size={18} className="mt-0.5 shrink-0" />
+                <p className="text-xs md:text-sm font-semibold">{error}</p>
+              </div>
+            )}
           </div>
         </div>
       )}
-      <style>{`
-        .miles-font { font-family: 'Fredoka One', cursive; } 
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; } 
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(92,99,58,0.1); border-radius: 10px; }
-      `}</style>
     </div>
   );
 };

@@ -1,6 +1,6 @@
 {
-  "name": "Miles - Your Startup Mentor",
-  "description": "A Sesame-inspired AI mentor for teen developers, created by Master E.",
+  "name": "Miles - Startup Mentor AI",
+  "description": "A warm, supportive voice assistant named Miles, created by Master E to guide Jamjam through the exciting world of software development and startups.",
   "requestFramePermissions": [
     "camera",
     "microphone",

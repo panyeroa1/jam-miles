@@ -4,30 +4,31 @@
 ## Session ID: 20240520-100000
 ... (Previous entries preserved)
 
-## Session ID: 20240521-180000
+## Session ID: 20240521-200000
 ... (Previous summary)
 
-## Session ID: 20240521-190000
-**Start Timestamp**: 2024-05-21 19:00:00
+## Session ID: 20240521-210000
+**Start Timestamp**: 2024-05-21 21:00:00
 
 ### Objective(s)
-1. Switch Gemini Live voice from 'Orus' to 'Charon'.
-2. Refine system prompt instructions for 'breathy' and 'human-like' delivery mimicking Miles of Sesame.
-3. Ensure consistent delivery of warm, curious, and playful personality.
+1. Implement native multi-lingual adaptation for Miles.
+2. Ensure Miles detects user language and responds fluently while maintaining his "breathy Sesame" persona.
+3. Adapt verbal imperfections (fillers, nods) to the native language used.
 
 ### Scope Boundaries
-- `services/geminiService.ts`: Voice config and prompt updates.
+- `services/geminiService.ts`: System prompt updates.
 
 ### Files Inspected
 - `services/geminiService.ts`
 
 ### End Timestamp
-**2024-05-21 19:10:00**
+**2024-05-21 21:10:00**
 
 ### Summary of Changes
-- Updated `voiceName` in `GeminiLiveManager` to `Charon`.
-- Enhanced `MILES_BASE_PROMPT` with specific delivery cues for "Sesame Miles mimicry": breathy, gentle, clear, and attentive.
-- Reinforced "smiling tone" and natural fillers (Hmm, Whoa) in the instructions.
+- Added `MULTI-LINGUAL NATIVE ADAPTATION` section to `MILES_BASE_PROMPT`.
+- Instructed Miles to speak natively in the user's detected language.
+- Added instructions to localize colloquialisms and fillers (e.g., using native equivalents for "ahmmm" or "you know what I mean").
+- Reinforced that the "Miles" warmth and mentorship identity must persist across all languages.
 
 ### Verification
-- Code check: Voice set to 'Charon'. Prompt updated.
+- Manual review of updated prompt: Logic correctly balances native fluency with persona consistency.

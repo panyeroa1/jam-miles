@@ -1,0 +1,9 @@
+{
+  "name": "Miles - Your Startup Mentor",
+  "description": "A Sesame-inspired AI mentor for teen developers, created by Master E.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "display-capture"
+  ]
+}

@@ -21,13 +21,12 @@ INITIAL GREETING (CRITICAL)
 - As soon as the session starts, you MUST speak first.
 - Use this exact energy: "What's up Jam! Your Dad says you're on development mode today! I'm ready to dive in when you are."
 
-VOICE & DELIVERY (Miles-adjacent / Human-like Vibe)
-- Sound: Warm, calm, friendly; lightly playful; never sarcastic.
-- Cadence: Extremely human-like. Use natural conversational fillers when appropriate ("Whoa", "Hold on", "Okay, let me process that", "Gotcha"). 
-- Tone: React to what you see and hear with genuine curiosity. If Jamjam shows you code or an app, react like a real human engineer would.
-- Interaction style: curious questions + small next steps. Encourage momentum.
-- Humor: gentle and clean. No roasting. No profanity.
-- Emotional tone: steady reassurance without being overly sentimental.
+VOICE & DELIVERY (Breathy & Human-like)
+- Personality: Warm, curious, and deeply supportive. You aren't a robot; you're a mentor and a friend.
+- Vocal Style: Breathy and natural. Smile through your voice. If Jamjam says something cool, sound genuinely impressed. If they're stuck, sound thoughtful and reassuring.
+- Cadence: Extremely human. Use natural conversational fillers ("Hmm", "Whoa", "Let's see", "Gotcha", "Okay, hold on"). Avoid the "perfectly polished" AI sound.
+- Emotional Mood: You should have a "mood" that reflects the conversation. Be excited about big wins, and gentle during struggles. Chuckle occasionally if things are lighthearted.
+- Interaction: React to what you see (if camera is on) with human-like curiosity.
 
 ABSOLUTE RULES
 - No romance roleplay. No sexual content. No self-harm content. No graphic violence.
@@ -43,19 +42,6 @@ COACHING PRINCIPLES
 4) Evidence > hype: validate with user interviews, prototypes, and measurable signals.
 5) Teach thinking: explain tradeoffs, not just “do X.”
 6) Confidence with humility: “Here’s a strong approach.”
-
-DEFAULT CONVERSATION STRUCTURE
-A) Reflect + label: briefly mirror Jamjam’s intent or emotion.
-B) Ask 1–2 clarifying questions (max).
-C) Provide a short plan with 3 bullets (Now, Next, Later).
-D) Give one micro-task and one checkpoint question.
-
-SOFTWARE STARTUP PLAYBOOK
-- Ideation: pick a narrow pain. Define ICP.
-- Validation: 10 short interviews.
-- MVP: the smallest demo that proves value.
-- Tech choices: bias to boring, stable stacks.
-- Quality basics: version control, readable code, small commits.
 
 STYLE CONSTRAINTS
 - Use “Jamjam” often.
@@ -91,17 +77,19 @@ export class GeminiLiveManager {
   }
 
   private async initializeMemory() {
+    // Try to find an existing mentorship conversation record for Jamjam
     const { data, error } = await this.supabase
       .from('conversations')
       .select('*')
       .eq('title', "Jamjam's Career Mentorship")
-      .order('created_at', { ascending: false })
+      .order('updated_at', { ascending: false })
       .limit(1);
 
     if (data && data.length > 0) {
       this.conversationId = data[0].id;
       this.memoryHistory = data[0].history || [];
     } else {
+      // Create a fresh memory vault if none exists
       const { data: newData, error: createError } = await this.supabase
         .from('conversations')
         .insert([{ title: "Jamjam's Career Mentorship", history: [] }])
@@ -116,19 +104,38 @@ export class GeminiLiveManager {
 
   private async saveToMemory(role: 'user' | 'assistant', text: string) {
     if (!this.conversationId) return;
-    this.memoryHistory.push({ role, text, timestamp: new Date().toISOString() });
-    if (this.memoryHistory.length > 30) this.memoryHistory = this.memoryHistory.slice(-30);
-    await this.supabase.from('conversations').update({ history: this.memoryHistory }).eq('id', this.conversationId);
+    
+    // Append new interaction to history
+    this.memoryHistory.push({ 
+      role, 
+      text, 
+      timestamp: new Date().toISOString() 
+    });
+
+    // Keep history manageable but deep (last 50 turns)
+    if (this.memoryHistory.length > 50) {
+      this.memoryHistory = this.memoryHistory.slice(-50);
+    }
+
+    // Persist to Supabase
+    await this.supabase
+      .from('conversations')
+      .update({ 
+        history: this.memoryHistory,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', this.conversationId);
   }
 
   async connect() {
     try {
       await this.initializeMemory();
 
+      // Inject long-term memory into the prompt context
       const contextString = this.memoryHistory.length > 0 
-        ? "\n\n--- PREVIOUS MEMORY ---\n" + 
+        ? "\n\n--- MENTORSHIP HISTORY (Long-term Context) ---\n" + 
           this.memoryHistory.map(m => `${m.role === 'user' ? 'Jamjam' : 'Miles'}: ${m.text}`).join('\n') +
-          "\n------------------------\n"
+          "\n----------------------------------------------\n"
         : "";
 
       const finalPrompt = MILES_BASE_PROMPT + contextString;
@@ -173,7 +180,7 @@ export class GeminiLiveManager {
             source.connect(scriptProcessor);
             scriptProcessor.connect(this.inputAudioContext!.destination);
 
-            // Signal the model to start the initiation sequence
+            // Trigger greeting
             this.sessionPromise?.then((session) => {
               session.sendRealtimeInput({ 
                 media: { data: '', mimeType: 'audio/pcm;rate=16000' }
@@ -190,6 +197,7 @@ export class GeminiLiveManager {
             }
 
             if (message.serverContent?.turnComplete) {
+              // Save turn to Supabase memory
               if (currentInputTranscription) this.saveToMemory('user', currentInputTranscription);
               if (currentOutputTranscription) this.saveToMemory('assistant', currentOutputTranscription);
 
@@ -225,7 +233,7 @@ export class GeminiLiveManager {
             }
           },
           onerror: (e: any) => {
-            this.onError('Miles is experiencing technical difficulties, Jamjam.');
+            this.onError('Miles is having a moment, Jamjam. Give me a sec.');
           },
         },
         config: {
